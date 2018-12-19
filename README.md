@@ -16,7 +16,7 @@ Foundation, Award No. CNS-1422979.
 
 ## Overview:
 
-The `LABS` folder provides the source materials for the series
+The `llp` folder provides the source materials for the series
 of seven LLP labs as they were presented to students.  Further
 details are included in the `README.md` file for that folder.
 
