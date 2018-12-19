@@ -1,0 +1,243 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<TITLE>A simple Video RAM simulation</TITLE>
+<style type="text/css">a {text-decoration: none}</style>
+</HEAD>
+<body text="#000000" bgcolor="#ffffff" link="#964800" vlink="#804000">
+
+<TABLE CELLSPACING=0 BORDER=0 CELLPADDING=0 align="center">
+<TR>
+<TD align="left" valign="top">
+  <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
+  This page last updated: December 2018.
+</TD>
+<TD align="right" valign="top">
+  <FONT SIZE=6>Configuring a Virtual Machine</FONT><br/>
+  Fall 2018
+</TD>
+</TR>
+<TR>
+<TD colspan="2">
+<!-- Main material goes here -->
+<hr>
+
+<p>These notes walk you through the process of constructing a
+virtual machine that you can use for developing and running the
+LLP sample programs and exercises.  They have been updated to
+show the most recent versions of the VirtualBox software and
+Ubuntu Linux that were available in December 2018, but some
+changes will likely be needed as new versions of these programs
+are released.  These instructions also assume that you are
+using a computer with macOS; again you will need to make some
+adjustments if you are using a different type of computer,
+although the overall process should look very similar.</p>
+
+<p><b>Step 1</b>: Download <tt>VirtualBox-5.2.22-126460-OSX.dmg</tt>
+and <tt>SHA356SUMS.txt</tt> from 
+<a href="https://virtualbox.org">https://virtualbox.org</a>.
+As an optional step, you can verify that the download was
+correct by using the following commands (the two output
+hashes should match):
+<pre>
+    cat SHA256SUMS.txt | grep dmg
+    shasum -a 256 VirtualBox-5.2.22-126460-OSX.dmg 
+</pre>
+Double click on the downloaded file and run through the steps
+on screen to install VirtualBox.
+</p>
+
+<p><b>Step 2</b>: Download <tt>ubuntu-18.04.1-desktop-amd64.iso</tt>
+from <a href="https://www.ubuntu.com/#download">https://www.ubuntu.com/#download</a> (Select 18.04 LTS).
+</p>
+
+<p><b>Step 3</b>: Open VirtualBox:</p>
+<p align=center><a href="0.png"><img src="0.png" width=800></a></p>
+Press the "New" button to create a new virtual machine.  Use <tt>LLPVM</tt>
+for the "Name"; select <tt>Linux</tt> as the "Type"; <tt>Ubuntu (64-bit)</tt> as the "Version"; use "Memory size" of 2048MB; select "Create a virtual hard disk now"; and then press "Continue":</p>
+<p align=center><a href="1.png"><img src="1.png" width=800></a></p>
+<p>When prompted for details about the hard disk, choose a size somewhere
+in the region of 20-25GB, VDI format, dynamically allocated, and then
+press "Create":
+<p align=center><a href="2.png"><img src="2.png" width=800></a></p>
+
+<p><b>Step 4</b>: After the new virtual machine has been created,
+press the "Settings" button:</p>
+<p align=center><a href="3.png"><img src="3.png" width=800></a></p>
+<p>And then select the "Storage" tab followed by the "Empty" CD Rom drive
+icon under "Controller: IDE":</p>
+<p align=center><a href="4.png"><img src="4.png" width=800></a></p>
+<p>Click on the CD Rom icon on the right of "IDE Secondary Master" (in
+the "Attributes" section on the right hand side); 
+select "Choose Virtual Optical Disk File ..." and navigate to the
+the Ubuntu image file that you downloaded in Step 2.  Click "OK"
+and then double click on the <tt>LLPVM</tt> to start your virtual
+machine for the first time so that we can install Linux on it!
+<p align=center><a href="5.png"><img src="5.png" width=800></a></p>
+
+<p><b>Step 5</b>: After the virtual machine boots from the (virtual)
+CD Rom, it will display a splash screen like the following:</p>
+<p align=center><a href="6.png"><img src="6.png" width=800></a></p>
+<p>Select "Install Ubuntu", and the appropriate keyboard type.  On
+the "Updates and other software" screen, select
+"Minimal installation (Web browser and basic utilities)" and
+"Download updates while installing Ubuntu" and then press "Continue":
+<p align=center><a href="7.png"><img src="7.png" width=800></a></p>
+<p>Next, select "Erase disk and install Ubuntu" and then press
+"Install Now":</p>
+<p align=center><a href="8.png"><img src="8.png" width=800></a></p>
+<p>Confirm the details that are displayed:</p>
+<p align=center><a href="9.png"><img src="9.png" width=800></a></p>
+<p>And then enter a suitable user name and password.  In the following,
+I've used <tt>llp</tt> as the user name and <tt>cemlabs</tt> as the
+password; unless you're planning to make the virtual machine accessible
+to the Internet, you probably don't need to worry too much about using
+a complex password: access to your virtual machine will be restricted
+and protected in the same way as your account on the host machine:</p>
+<p align=center><a href="a.png"><img src="a.png" width=800></a></p>
+
+<p>The installer will now begin to copy the necessary files to run
+Linux on to the virtual hard drive of your virtual machine; this may
+take a few minutes (or longer, depending on the speed of the host
+computer):</p>
+<p align=center><a href="b.png"><img src="b.png" width=800></a></p>
+<p>When the installation is complete, press the "Restart Now" button
+to restart your virtual machine.  You may need to eject the virtual
+CD Rom containing the Ubuntu distribution at this point; you can take
+care of this using the CD Rom icon on the bottom of the Virtual Box
+window:</p>
+<p align=center><a href="c.png"><img src="c.png" width=800></a></p>
+
+<p><b>Step 6</b>: Your new virtual machine should now boot and display
+a login page.  Click on the <tt>llp</tt> user name (or whatever name
+you chose):</p>
+<p align=center><a href="d.png"><img src="d.png" width=800></a></p>
+<p>Enter your password and press "Sign In":</p>
+<p align=center><a href="e.png"><img src="e.png" width=800></a></p>
+<p>And you will be greeted by a sequence of screens introducing you
+to "What's new in Ubuntu":</p>
+<p align=center><a href="f.png"><img src="f.png" width=800></a></p>
+<p>Soon, you will be looking at a clean desktop something
+like this:</p>
+<p align=center><a href="g.png"><img src="g.png" width=800></a></p>
+
+<p><b>Step 7</b>: The next step is to install the extra software
+packages that we need to compile and run LLP programs.  For starters,
+we're going to be using the "Terminal" a lot, so click the Apps icon
+in the lower left corner of the screen and select the "Terminal"
+application:</p>
+<p align=center><a href="h.png"><img src="h.png" width=800></a></p>
+<p>I recommend that you add the "Terminal" app to the dock on the left
+of the screen; to do this, just click the icon and select "Add to Favorites":</p>
+<p align=center><a href="i.png"><img src="i.png" width=800></a></p>
+<p>In the terminal type the following command to download and install
+each of the named packages:
+<pre>
+   sudo apt install gcc make perl linux-headers-$(uname -r) \
+      build-essential dkms clang llvm qemu xorriso libc6-x32 \
+      parted default-jdk git ant
+</pre>
+Make sure you don't leave out any of the packages here, or else
+you might not be able to compile and run the LLP demos (although,
+if you do miss something, you can always go back an install it
+later).</p>
+<p>The command about can be typed on one line as shown in the screen
+shot, or you can do it in steps, repeating the <tt>sudo apt install</tt>
+part of the command for each group of packages.  Either way, because
+you're using the <tt>sudo</tt> command here, you'll be asked to enter
+your password:</p> 
+<p align=center><a href="j.png"><img src="j.png" width=800></a></p>
+<p>The system will then figure out which packages it needs to download
+and install (which will likely be much longer than the specific
+list you provided because it will also include all the additional
+package dependencies).  Enter "Y" and press "Enter" to confirm that
+this is ok:</p>
+<p align=center><a href="k.png"><img src="k.png" width=800></a></p>
+<p>And now wait for the downloads and installation to complete.
+The following screen shot shows what this might look like part
+way through the process:</p>
+<p align=center><a href="l.png"><img src="l.png" width=800></a></p>
+
+<p><b>Step 8</b>: Now we should be able to intall the "VirtualBox
+Guest Additions", which will give you a bit more flexibility in
+using the virtual machine (including the ability to resize the
+virtual machine window, used shared folders, and even copy and
+paste between your virtual machine and the real computer).  To
+begin this process, use the option at the bottom of the
+"Device" menu while the virtual machine is running; this will
+simulate the effect of inserting a (virtual) CD in to a (virtual)
+drive and will result in a pop-up message like the following:</p>
+<p align=center><a href="m.png"><img src="m.png" width=800></a></p>
+<p>Once again, you will be expected to provide your password:</p>
+<p align=center><a href="n.png"><img src="n.png" width=800></a></p>
+<p>And then you will have to wait again for the installation to finish.
+As the message on screen says: "This may take a while." ...</p>
+<p align=center><a href="o.png"><img src="o.png" width=800></a></p>
+<p>... but it should still finish successfully, at which point you
+can press "Return" to end the process.  This might also be a good
+time to eject the virtual CD (from the "Device" menu, the icon at
+the bottom of the screen, or on the Linux desktop):
+<p align=center><a href="p.png"><img src="p.png" width=800></a></p>
+
+<p><b>Step 9</b>: We're almost done, but we need to configure
+"Shared Folders" so that your virtual machine can access files
+stored on your host computer; this feature will make it easy to
+transfer files between the two machines.  As a first step, we
+need to execute the following command so that the <tt>llp</tt>
+account has access to the shared folders feature:
+<pre>
+   sudo adduser user  vboxsf
+</pre>
+Depending on how much time has passed since you typed your last
+<tt>sudo</tt> command, you may need to re-enter your password
+to run this command:</p>
+<p align=center><a href="q.png"><img src="q.png" width=800></a></p>
+<p>To complete the process, we need to turn off the virtual machine
+so that we can modify its settings.  Start by clicking on the down-arrow
+symbol in the top right corner of the screen, and then press the button
+marked with a power symbol:</p>
+<p align=center><a href="r.png"><img src="r.png" width=800></a></p>
+<p>Press "Power Off" to confirm that this really is what you want to
+do!</p>
+<p align=center><a href="s.png"><img src="s.png" width=800></a></p>
+<p>Once you are back in the VirtualBox interface, bring up the settings
+for your virtual machine and navigate to the "Shared Folders" tab.
+Select the folder on your host machine that you want to have access
+to in the virtual machine (this might be your <tt>~/Documents/llp</tt>
+folder for example, although the screen shot shows a different path);
+enter <tt>llp</tt> as the "Folder Name"; select "Auto-mount" so
+that you will automatically have access to the shared folder every time
+the virtual machine starts; and then press "OK":
+<p align=center><a href="t.png"><img src="t.png" width=800></a></p>
+<p>Restart your virtual machine, open a terminal window, and enter the
+following command:
+<pre>
+  ln -s /media/sf_llp llp
+</pre>
+Once this is done, you should be able to access your shared folder
+from your virtual machine by using the <tt>~/llp</tt> folder:</p>
+<p align=center><a href="u.png"><img src="u.png" width=800></a></p>
+
+<p><b>Step 10</b>: Now, at last, the fun begins!  Once you have
+downloaded the LLP "hello" demo to your <tt>llp</tt> folder, for
+example, you will be able to use the following commands to compile
+and run a simple "bare metal" demonstration program:
+<pre>
+  cd ~/llp/hello
+  make run
+</pre>
+From this point on, you shouldn't have to worry about building your
+virtual machine, and should be able to concentrate on using it instead!</p>
+<p align=center><a href="v.png"><img src="v.png" width=800></a></p>
+<p>Happy (virtual) computing!</p>
+
+<br/>
+<!-- Main material ends here-->
+</TD>
+</TR>
+</TABLE>
+
+<hr>
+
+</BODY>
+</HTML>
