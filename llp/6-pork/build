@@ -1,0 +1,16 @@
+FOLDER=`pwd`
+(cd ../.. ; \
+  tar cvzf $FOLDER/pork.tar.gz \
+    Makefile \
+    pork/{Makefile,grub.cfg} \
+    pork/user/Makefile \
+    pork/user/sigma0/{Makefile,sigma0.c,sigma0.ld,sigma0.s,sigma0boot.s} \
+    pork/user/root/{Makefile,root.c,root.ld,rootboot.s,showkip.c} \
+    pork/user/lib/{Makefile,syscall.s} \
+    pork/user/l4ka-sigma0/{crt0-ia32.S,Makefile,region.cc,region.h,sigma0.cc,sigma0.h,sigma0_mem.cc} \
+    pork/user/l4ka-pingpong/{config.h,crt0-ia32.S,ia32.h,Makefile,pingpong.cc,pingpong.ld} \
+    pork/user/io/{config.h,get_hex.cc,ia32-getc.cc,ia32-port.h,ia32-putc.cc,Makefile,mini-print.cc,print.cc} \
+    pork/user/include/{hardware.h,kip.h,l4.h,l4io.h} \
+    pork/user/include/l4/{ipc.h,kdebug.h,kip.h,message.h,misc.h,schedule.h,space.h,thread.h,types.h,utcb.h} \
+    pork/kernel/{Makefile,boot.S,ipc.c,kip.S,memory.c,pork.c,pork.ld,scheduling.c,space.c,threads.c} \
+    pork/kernel/include/{context.h,hardware.h,kip.h,memory.h,pork.h,space.h,threads.h} )

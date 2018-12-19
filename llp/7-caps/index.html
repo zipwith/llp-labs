@@ -1,0 +1,572 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<TITLE>Capabilities</TITLE>
+<style type="text/css">a {text-decoration: none}</style>
+</HEAD>
+<body text="#000000" bgcolor="#ffffff" link="#964800" vlink="#804000">
+
+<TABLE CELLSPACING=0 BORDER=0 CELLPADDING=0 align="center">
+<TR>
+<TD align="left" valign="top">
+  <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
+  This page last updated: December 2018.
+</TD>
+<TD align="right" valign="top">
+  <FONT SIZE=6>Capabilities</FONT><br/>
+  Fall 2018
+</TD>
+</TR>
+<TR>
+<TD colspan="2">
+<!-- Main material goes here -->
+<hr>
+<p>
+The exercises described on this page build on the ideas that you have
+developed in the earlier labs on context switching and paging, but
+also incorporate new ideas that were introduced in the Week 7 lecture
+about capabilities.  You should make sure that you have completed
+the earlier labs, and reviewed the slides from the lecture before
+proceeding.  Although the implementation of capabilities presented
+here is not as sophisticated or complete, it is important to note
+that the overall approach is very much informed and inspired by the
+capability system in the seL4 microkernel; many more details about
+that system can be found at <a href="https://sel4.systems"><tt>https://sel4.systems</tt></a>.
+</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 1: Getting set up</h2>
+<p>To begin, you will need to download, unpack, and build
+the source code for the simple kernel and user-level demo with
+capability-based system calls that was the main focus of the capabilities
+lecture.  This code is packaged as <a href="caps.tar.gz">caps.tar.gz</a>
+and should be installed in
+the same way as previous files: place a copy in your <tt>llp</tt>
+directory; unpack using <tt>tar xvzf caps.tar.gz</tt>; and then run
+<tt>make</tt> in the new <tt>caps</tt> folder.</p>
+
+<p>In fact, as you've likely guessed based on past exercises, you can
+use <tt>make run</tt> from within the <tt>caps</tt> folder to build and
+run the demo program in a single step.  If you've installed everything
+correctly, you should see a window that looks something
+like this:</p>
+
+<p align=center><a href="capssc.png"><img alt="image of initial screen for the capabilities lab; click on image to view full size" src="capssc.png" width=540></a></p>
+
+<p>Note that there is a "spinner" in the top right hand corner that
+is updated by the timer interrupt handler.  This is a simplified
+version of the clock exercise that was suggested as a stretch
+goal in the context switching lab.  Its primary purpose here is
+to provide an indication that the kernel is still running, even
+when no output appears on screen.  But those who did not get a
+working clock for the switching demo may find some useful hints
+about how to accomplish that by studying the implementation of
+this simple spinner.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 2: A guided tour of the <tt>caps</tt> folder</h2>
+<p>This lab draws on the techniques and ideas that have been
+introduced in the previous switching and paging labs.  But with
+all the extensions and modifications that we've made in the
+course of those exercises, you're probably finding that the code
+base is getting a little tangled and hard to navigate.  So we're
+going to take advantage of this new lab to do a little clean up
+work, reorganizing the code and breaking it in to smaller pieces
+with a more clearly defined purpose or focus.  In this section,
+we'll provide a brief tour of the important files.</p>
+
+<p>For starters, I recommend that you run <tt>make clean</tt>
+in the <tt>caps</tt> directory before you proceed; this will clear away
+compiler-generated files so that we can focus on the source code.
+Of course, you can always regenerate the other files later by
+repeating the <tt>make</tt> or <tt>make run</tt> commands.</p>
+
+<p>Now we'll begin our tour for real in the <tt>kernel</tt>
+folder; I encourage you to follow along by reviewing each of the
+listed files in an editor (or using a tool like <tt>less</tt>,
+or similar), as you see fit: </p>
+
+<ul>
+<li><p>We'll start with the easiest ones: <tt>Makefile</tt>,
+  <tt>kernel.ld</tt>, <tt>memory.h</tt>, <tt>context.h</tt>, and
+  <tt>hardware.h</tt> are all pretty much the same as the versions of
+  these files that you've seen before.  There are a few extra lines in
+  the <tt>Makefile</tt> to handle the new <tt>.c</tt> files described
+  below, but otherwise there's not a lot of new material to see
+  here.</p></li>
+
+<li><p><tt>init.S</tt> is a (mostly unchanged) version of the startup
+  code, written in assembly, from the previous labs.  One small change
+  that might be worth pointing out here, however, is a new macro
+  called <tt>syscall</tt> that simplifies the task of adding a new
+  system call handler.  Specifically, you want to add a new system
+  call for a function called <tt>xxxx</tt>, then you should add a
+  couple of lines of the following form after the definition of the
+  <tt>syscall</tt> macro (where <tt>Xxxx</tt> is the name obtained
+  from <tt>xxxx</tt> by capitalizing the first letter):
+<pre>
+  handleXxxx:
+          syscall xxxx_imp
+</pre>
+   and also add an entry for the new system call in the IDT initialization
+   code that looks something like this:
+<pre>
+  idtcalc handler=handleXxxx, slot=N, dpl=3
+</pre>
+  where <tt>N</tt> is the IDT slot/interrupt number that you'll be using
+  for the new system call.  Finally, of course, you'll need to add an
+  implementation of the new system call; the <tt>syscalls.c</tt> file
+  described below is likely a good place to put that code.</p></li>
+  
+<li><p><tt>util.h</tt> just provides definitions for functions that
+  can be used to <tt>halt()</tt> the CPU (assuming you're in kernel
+  mode); report a <tt>fatal()</tt> error; or test for a specific
+  condition using <tt>assert()</tt>.  You'll see some uses of
+  <tt>assert()</tt>, in particular, at the start of the
+  <tt>initMemory()</tt> function in <tt>alloc.c</tt> where it is
+  used to perform some basic sanity checks and report an error
+  to the kernel developer if something does not look right.  Feel
+  free to use this in your own code as seems useful!</p></li>
+
+<li><p><tt>alloc.h</tt> and <tt>alloc.c</tt> implement the algorithms
+  for calculating the initial list of untyped memory capabilities that
+  cover all of the unused memory based on the memory map and header
+  information that are passed on at boot time.  Once created and sorted
+  with the largest untyped region(s) first, the kernel allocates
+  individual 4K pages from the regions at the end of the list and
+  provides functions for donating entries in the list by moving them to
+  an appropriate capability space slot.  You will not be expected to
+  understand or modify the code in these files, but you are welcome to
+  take a peek and try to figure out how they work.  From an algorithmic
+  perspective, this is probably the most interesting part of the whole
+  kernel implementation!</p></li>
+
+<li><p><tt>caps.h</tt> and <tt>caps.c</tt> provide definitions and
+  implementations for the different capability types that we are working
+  with here.  This includes: a unique integer code for each different
+  type of capability; a structure describing the layout for that
+  capability type; and associated test and set functions (all of this is
+  in <tt>caps.h</tt>).  The code in <tt>caps.c</tt> mostly provides
+  functionality for printing out descriptions of individual capabilities
+  or complete capability spaces (for debugging purposes), but also
+  provides the main <tt>alloc()</tt> function for allocating a flex page
+  from an untyped memory object.</p></li>
+
+<li><p><tt>paging.h</tt> and <tt>paging.c</tt> provide definitions and
+  implementations of functions for working with page directory and page
+  table structures.  You've seen most of this code before, but there is
+  a completed version of <tt>mapPage()</tt> from the end of the first
+  paging lab that you can compare with your own implementation.  If you
+  didn't quite get around to writing your own <tt>mapPage()</tt> just
+  yet, fear not: you'll still have an opportunity to demonstrate your
+  understanding of how these kinds of operations are written when it
+  comes to implementing the <tt>mapPage</tt> and <tt>mapPageTable</tt>
+  system calls later in this set of lab exercises.</p></li>
+
+<li><p><tt>proc.h</tt> and <tt>proc.c</tt> are short files that provide
+  the implementation for the data structure that we use to represent
+  individual processes (<tt>struct Proc</tt>) as well as a
+  <tt>reschedule()</tt> function for switching from one process to
+  another.  There isn't a lot of code here that you haven't seen before,
+  but you might find it useful to look at these files if you need to
+  make changes to the way that processes are created or organized.</p></li>
+
+<li><p><tt>kernel.c</tt> contains the code for initializing the kernel
+  and the initial user-level processes.  You might want to modify this
+  code if you are trying to test specific kernel functions that, for
+  example, are used to configure a capability space.</p>
+
+  <p>[<b>Quick quiz</b>: (not related to capabilities!) The <tt>upperRight</tt> and <tt>lowerRight</tt>
+  variables that are defined in this file as global variables are only
+  actually referenced within the <tt>kernel()</tt> function in this file.
+  Why then would it be a mistake to declare them as local variables of the
+  <tt>kernel()</tt> function?]</p>
+</li>
+
+<li><p><tt>syscalls.c</tt> collects all of the system call implementations
+  in a single file so that we can compare them side by
+  side.  You might notice that there are some <tt>TODO</tt> items here,
+  so perhaps you'll be coming back to look at this file in more detail
+  quite soon ...</p></li>
+
+</ul>
+<p>Phew, quite a lot to take in there!  Fortunately, the changes to
+our <tt>user</tt> folder are a little easier to follow (it helps
+that we didn't have much code there to begin with):</p>
+<ul>
+<li><p><tt>Makefile</tt> and <tt>user.ld</tt> are unchanged.</p></li>
+
+<li><p><tt>syscalls.h</tt> is a simple header file that contains
+  C function prototypes for the system calls that we want to be
+  able to use in our user-level program.  In other words, the
+  definitions in this file describe how individual system calls
+  are made available to user-level programs as if they were just
+  regular function calls.</p></li>
+
+<li><p><tt>userlib.s</tt> contains the assembly language
+  initialization code for the kernel, as well as stubs for each
+  of the system calls that are declared in <tt>syscalls.h</tt>.
+  There are plenty of examples for you to work from here if you
+  are trying to add a new system call.  Just make sure that you
+  are loading the system call parameters into the appropriate
+  registers, and that you are using the right IDT slot/interrupt
+  number for the <tt>int</tt> instruction; these must match the
+  slot numbers you've used in <tt>kernel/init.S</tt>, or else
+  bad things might happen ...</p></li>
+
+<li><p><tt>user.c</tt> contains the C code for a simple user-level
+  program.  This is the place to add uses of system calls that
+  you're testing.  For the time being, it's important that we
+  don't allow this user-level program to terminate because the
+  kernel doesn't know how to handle that.  The kernel also doesn't
+  know how to respond to page faults just yet, so let's hope that
+  our user-level programs are well-behaved.  Of course, we might
+  also want to address these problems in other ways to make a
+  more robust system ...
+  </p></li>
+
+</ul>
+<p>Finally, you might have noticed that the <tt>kernel</tt> and
+<tt>user</tt> folders inside the <tt>caps</tt> directory are now
+joined by a third folder called <tt>capio</tt>.  This contains
+source code for a simple, user-level library for performing
+I/O via window capabilities.  It is similar in purpose to the
+<tt>userio</tt> library that you have used previously, except that
+it allows for providing a specific window capability reference
+as part of each call.  (A brief description of this library is
+included in the capabilities lectures.)</p>
+
+<p>That's a lot of information to digest.  But remember that
+you can always come back to check these details again later as
+you need them.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 3: Fixing those TODOs</h2>
+<p>As mentioned previously, there are a few <tt>TODO</tt>
+items in <tt>kernel/syscalls.c</tt>.  Now is the time to start
+filling them in!  Essentially, what you are being asked to do
+here is to complete the implementations of some system calls.
+The supplied code already includes the code for system calls
+whose implementation was shown in the lecture, so you can use
+those as starting points/inspiration for the missing system
+calls.  Each of the <tt>TODO</tt> items includes comments to
+describe what that particular system call is expected to do,
+so we will not waste space repeating that information here.
+All of the code that is needed to support these system calls
+in <tt>kernel/init.S</tt>, <tt>user/syscalls.h</tt>, and
+<tt>user/userlib.s</tt> has already been provided so that
+you can focus your attention on <tt>kernel/syscalls.c</tt>.
+But of course you're welcome to look at the other files if you
+want to check any details there or to make sure you understand
+all of the steps that are needed to get from user-level code
+to the implementation of a system call.</p>
+
+<p>We'll start with the following <tt>TODO</tt> items.
+I recommend that you work through them in the order they are
+listed, testing at each stage:</p>
+
+<ul>
+<li><p><tt>cls_imp()</tt> and <tt>setAttr_imp()</tt> are used to
+  perform operations on a <tt>WindowCap</tt>, assuming that
+  the caller has the necessary permissions ...</p></li>
+
+<li><p><tt>capclear_imp()</tt> is used to clear entries in a
+  capability space.  Beware that, if a user removes the last
+  capability to a given resource, then there might not be any
+  way to get it back!</p></li>
+</ul>
+
+<p>There are some other <tt>TODO</tt> items not included in
+the list above; we'll come back to finish these off later on
+in Step 5.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 4: Adding a new type of capability</h2>
+<p>Add a new capability type, <tt>TimerCap</tt>, and an associated
+system call, <tt>getTicks(tcap)</tt>, that a user-level process
+can invoke to access the current timer value via a reference,
+<tt>tcap</tt>, to a <tt>TimerCap</tt>.  In the distributed code, the
+timer is stored in the <tt>ticks</tt> variable inside the code for
+the timer interrupt handler; you'll need to make this a global
+variable so that your system call implementation can access it.</p>
+
+<p>Some operating systems block access to accurate timer information
+from user-level processes to prevent <a
+href="https://en.wikipedia.org/wiki/Timing_attack">timing attacks</a>.
+One way to address this is to limit the resolution of the timing
+information.  Extend your implementation of <tt>TimerCap</tt> to
+include a number of bits that will be zero in every timer reading
+that is returned through that capability.  For example, if the number
+of bits is set to 3, then actual timer values of 0, 1, 2, 3, 4, 5, 6,
+and 7 will all be reported back to the holder as 0.  The holder will
+still be able to see that the timer is advancing, but will not have
+access to the highest available resolution.</p>
+
+<p>Note: Remember that this is just an exercise in using capabilities:
+I'm not really proposing it as a serious practical solution to avoid
+timing attacks, nor am I claiming that timing attacks are a concern for
+us in this lab, especially because the tick count in this implementation
+does not provide a particularly high resolution to begin with!</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 5: Fixing some more TODOS</h2>
+<p>Now it is time to finish off the <tt>TODO</tt> items in
+<tt>kernel/syscalls.c</tt>.  The remaining items on the list
+all have to do with the data structures for memory management
+that we first encountered in the paging lab:</p>
+
+<ul>
+<li><p><tt>allocPage_imp()</tt> and <tt>allocPageTable_imp()</tt>
+  are used to allocate objects from an untyped memory object.
+  These operations follow a very similar pattern to the code that
+  was illustrated in the lecture for
+  allocating cspaces and untyped memory objects; we might want
+  to integrate these into a single function later on to avoid
+  a profusion of system calls.</p></li>
+
+<li><p><tt>mapPage_imp()</tt> and <tt>mapPageTable_imp()</tt>
+  allow a process to extend its own address space by adding
+  new mappings using previously allocated page table and page
+  objects.  The implementation of these functions will take a
+  little bit of work, but I suggest that you take advantage of
+  the code for <tt>mapPage()</tt> in <tt>paging.c</tt> (or your
+  own previous implementation) to help you with this:</p>
+  <ul>
+  <li><p>The code for <tt>mapPage_imp()</tt>, once you've
+      verified that the arguments are valid, will look pretty
+      similar to the code for <tt>mapPage()</tt>.  One key
+      difference, however, is that if we get to the point
+      where <tt>mapPage()</tt> would have used <tt>allocPage()</tt>,
+      then it will instead return to the user code with an error:
+      this is an indication that the user code needs to install a
+      suitable page table before the <tt>mapPage_imp()</tt> call
+      can complete.<p></li>
+
+  <li><p>The code for <tt>mapPageTable_imp()</tt>, again once
+      the parameters have been checked, will also do much the
+      same as (the first part of) <tt>mapPage()</tt>.  However,
+      if it gets to the point where the code discovers that a
+      page table has already been allocated, then it will return
+      with an error.  Alternatively, if it reaches the point
+      where <tt>mapPage()</tt> would have allocated a page table,
+      then it will instead use the pointer from the page table
+      capability that is passed as an argument.</p></li>
+  </ul>
+  <p>In each of these cases, you can see how the kernel avoids
+  performing any memory allocation, either by using a block of
+  memory that the user-level code has already allocated, or else
+  by terminating the system call with an error code.</p>
+  </li>
+
+</ul>
+<p>The supplied user code already includes some simple uses
+of these system calls that you can use for testing (based on
+the example that was presented in the lecture), but of course
+you are free to make up your own examples for more extensive
+testing and to demonstrate your understanding of the relevant
+course objectives.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 6: Adding a new system call to an existing capability type</h2>
+<p>Add a new system call, invoked as <tt>remaining(ucap)</tt> from
+user-level code, that can be used to determine how much unallocated
+memory is left in the untyped capability specified by <tt>ucap</tt>.
+That description makes it sound very simple, but it might take a
+little bit more work to get this up and running!</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 7: Improving an existing operation</h2>
+<p>Using the <tt>WindowCap</tt> capability type, we can print a string
+of characters on an output window using a sequence of system calls, one
+for each character.  While this is enough to get the job done, it is not
+very efficient or practical to use so many system calls for such a
+simple task!  Wouldn't it be better if we could use a single system call
+to pass and display a whole string of characters at once?</p>
+
+<p>To implement this we need a region of memory that both the user-level
+program and the kernel can use to communicate with one another.  From
+the kernel's perspective, we can handle this by adding a new field,
+<tt>unsigned* buffer</tt>, to each <tt>struct Proc</tt> object that is
+initialized to <tt>null</tt>.  For the user-level side, we can provide
+a system call <tt>allocBuffer(ucap, addr)</tt> that can be invoked to
+allocate a page of memory (from the untyped memory specified by
+<tt>ucap</tt>) that is mapped into the address space of the user-level
+process at the specified address, <tt>addr</tt>.  Of course, this
+operation will fail if there is a problem with the capability (wrong
+type, not enough space, etc.) or the address (in <tt>KERNEL_SPACE</tt>,
+already mapped, etc.), or if a <tt>buffer</tt> has already been allocated
+for this process.  But if it succeeds, then a pointer to the newly
+allocated page will be saved in the <tt>buffer</tt> for the process.</p>
+
+<p>The next step is to add a new system call, <tt>printBuffer(wcap)</tt>
+that will print the string in the process buffer in the window specified
+by the given <tt>WindowCap</tt>, <tt>wcap</tt>.  A user-level process
+will typically invoke this system call after it has filled the buffer,
+via the address that it specified in the <tt>allocBuffer()</tt> call.
+On the kernel side, we have to check not only that <tt>wcap</tt> is
+valid (and, presumably that it includes the permission to printing a
+single character), but also that the invoking process has previously
+allocated a <tt>buffer</tt>.  We'll assume that the user-level process
+marks the end of the string that it wants to be displayed by adding a
+null byte after all the characters, thereby following the time-honored
+(and highly error-prone) tradition of C.  This creates another
+obligation for the kernel, because if the user-level program "forgets"
+to add that null byte, whether by mistake or design, then an over-eager
+implementation of <tt>printBuffer()</tt> might be tricked into reading
+past the end of the buffer page, and trigger a kernel page fault.  That
+would be pretty embarrassing, so make sure your implementation stops
+before it goes past the end of the page!  If you like, you could even
+add another field to the <tt>WindowCap</tt> capability to set a "maximum
+message length" value as an extra badge.  Of course, the kernel should
+also be ready to ignore that value if it is more than the length of the
+buffer page ...</p>
+
+<p>[The technique described here still has some potential performance
+problems because it forces the user-level process to copy data into
+the buffer area before making the call to <tt>printBuffer()</tt>.
+You could imagine an alternative approach that provides user-level
+processes with a system call <tt>printString(wcap, addr)</tt> where
+<tt>addr</tt> can be an arbitrary address that points to a string in
+the caller's address space.  The kernel, of course, will be able to
+read the characters stored at that address.  But again, our poor
+kernel will have to careful and protect itself against misbehaving
+user-level programs that supply an invalid <tt>addr</tt> that would
+cause the kernel to page fault if it tried to access that memory.
+Happily, the kernel also has access to the page directory and page
+table for the process, so it can check that the address is valid
+before attempting the operation.  But this will take a fair bit
+of extra work ...]</p>
+
+<p>Note that the <tt>buffer</tt> technique described above is inspired,
+in large part, by the approach that is used in seL4 to allocate an `IPC
+buffer' to threads that need to send or receive messages that are
+more than a few words in length, and hence cannot be stored completely
+in CPU registers.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 8: Let's retype that ... (a stretch goal)</h2>
+<p>You may have noticed that the various functions for allocating
+objects from an untyped memory area (e.g., <tt>allocCspace</tt>,
+<tt>allocUntyped()</tt>, <tt>allocPage()</tt>, etc.) all have a
+pretty similar structure.  In addition, there are often situations
+where we need to make multiple allocator calls in a row to allocate
+a sequence of objects.  One way to tackle these problems is to
+collapse all of the allocators into a single system call of the
+form:</p>
+<pre>
+  retype(ucap, type, bits, slot, num)
+</pre>
+<p>where:</p>
+<ul>
+<li> <p><tt>ucap</tt> is a capability to untyped memory.</p></li>
+
+<li> <p><tt>type</tt> is an integer code that represents the type of the
+     objects and associated capabilities that we want to allocate.
+     For example, we could use 1 for a <tt>CspaceCap</tt>,
+     2 for an <tt>UntypedCap</tt>, etc..  The numbers are arbitrary
+     so long as distinct capability types use distinct numbers and
+     both kernel and user-level code use the same mapping from
+     numbers to capability types.</p></li>
+
+<li> <p><tt>bits</tt> is an extra field that can be used to specify the
+     size of the objects to be allocated; this field is needed when
+     we are allocating new <tt>UntypedCap</tt>s, but can be ignored
+     for all other capability types in our current implementation.</p></li>
+
+<li> <p><tt>slot</tt> is a reference to an empty slot in a capability space
+     where the capability to the first new object will be placed.</p></li>
+
+<li> <p><tt>num</tt> is the total number of objects that we want to be
+     allocated by this system call.  For the call to be valid, we
+     must ensure that the untyped memory has enough free space for
+     the requested number of objects, and we must also ensure that
+     there are enough empty capability slots&mdash;starting at
+     <tt>slot</tt> and continuing with <tt>slot+1</tt>,
+     <tt>slot+2</tt>, and so on, as necessary&mdash;to hold all of
+     the new capabilities.</p></li>
+
+</ul>
+<p>Your task now, of course, is to implement this all-powerful allocator
+system call.  It will take a fair bit of work, but then you will also
+be able to throw away all those close-to-duplicated <tt>allocXXX()</tt>
+functions, and it will also be much easier after this to add support for
+allocating new types of object.  In addition, you won't need to rewrite
+all your existing user level code to use the new <tt>retype()</tt> call:
+instead, you can just write simple wrappers in <tt>user/syscalls.h</tt>
+that implement each of the original, more specialized allocators as
+special cases of <tt>retype()</tt>.</p>
+
+<p>Once again, we should also acknowledge that the <tt>retype()</tt>
+system call is inspired by a system call of the same name in the
+seL4 microkernel.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 9: What's next?</h2>
+<p>Really?  That was quite a lot of work, and you still want more?
+Of course, I'm glad to hear that, but I'd still suggest this might
+be a good time to take a break.  In your idle moments, however,
+you might still want to be considering questions like the following:
+</p>
+<ul>
+<li><p>Wouldn't it be nice if there were a way to create new processes
+  on the fly?  We could use untyped memory to allocate space for the
+  underlying process structures, but the <tt>proc</tt> array that we've
+  been relying on so far has a fixed size.  Maybe it's time to rethink
+  that and allow an arbitrary collection of <tt>struct Proc</tt>
+  objects to be linked together in a circular, doubly-linked list so
+  that it is easy to add and remove individual elements?  This would
+  add <tt>struct Proc* prev;</tt> and <tt>struct Proc* next</tt>
+  pointers to every process, but then we could implement round
+  robin scheduling just by switching from <tt>current</tt> to
+  <tt>current-&gt;next</tt>.</p></li>
+
+<li><p>Now, before we worry about creating new processes, we could
+  provide a new system call that allows existing processes to terminate
+  themselves, removing them from the list of current processes.  This
+  could be handled gracefully by providing a suitable system call.
+  But it is probably also time for us to replace the old <tt>nohandler</tt>
+  with some code that will terminate a process if it triggers an exception.
+  We don't really want a user-level process to bring down the whole system
+  just because it tries to divide by zero, or causes a page fault.
+  </p></li>
+
+<li><p>This raises another issue: we could find ourselves with no
+  runnable processes; that is, with nothing for <tt>current</tt> to
+  point to!  For now, we might just decide that its time for the kernel
+  to terminate too.  But, if we add even more features to our kernel,
+  then it might just be that we need to wait for some new event&mdash;a
+  keyboard or timer interrupt, for example&mdash;that will restart a
+  previously suspended task or process.  With that in mind, perhaps
+  we'll want to have a special `idle process' that can be used when no
+  other <tt>current</tt> process is ready to run ...  </p></li>
+
+<li><p>Finally, we're ready to think about what it might take to
+  allow the creation of a new process ...
+  </p></li>
+
+</ul>
+<p>If you have enjoyed the material in this lab, you are strongly
+encouraged to check out <a href="https://sel4.systems"><tt>https://sel4.systems</tt></a>
+to see how a substantially more complete capability abstraction fits
+in to a real-world microkernel implementation (that has also been the
+subject of a successful formal verification effort)!</p>
+
+<br/>
+<!-- Main material ends here-->
+</TD>
+</TR>
+</TABLE>
+
+<hr>
+
+</BODY>
+</HTML>

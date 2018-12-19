@@ -1,0 +1,3 @@
+FOLDER=`pwd`
+(cd ../.. ; tar cvzf $FOLDER/vram.tar.gz \
+  vram/{Makefile,video.h,video1.c,video2.c,video3.c,videoasm.s,videodisp.c} )

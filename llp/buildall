@@ -1,0 +1,11 @@
+# Use the command:   source buildall
+# to build all of the tar.gz files for the labs
+
+(cd 1-vram      ; source build)
+(cd 2-baremetal ; source build)
+(cd 3-switching ; source build)
+(cd 4-paging    ; source build)
+(cd 5-processes ; source build)
+(cd 6-pork      ; source build)
+(cd 7-caps      ; source build)
+

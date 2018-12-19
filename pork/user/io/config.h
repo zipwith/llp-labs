@@ -1,0 +1,3 @@
+
+#undef CONFIG_COMPORT
+

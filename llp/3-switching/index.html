@@ -1,0 +1,609 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<TITLE>Context Switching and Interrupts</TITLE>
+<style type="text/css">a {text-decoration: none}</style>
+</HEAD>
+<body text="#000000" bgcolor="#ffffff" link="#964800" vlink="#804000">
+
+<TABLE CELLSPACING=0 BORDER=0 CELLPADDING=0 align="center">
+<TR>
+<TD align="left" valign="top">
+  <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
+  This page last updated: December 2018.
+</TD>
+<TD align="right" valign="top">
+  <FONT SIZE=6>Context Switching and Timer Interrupts</FONT><br/>
+  Fall 2018
+</TD>
+</TR>
+<TR>
+<TD colspan="2">
+<!-- Main material goes here -->
+<hr>
+</p>
+In these exercises, we'll be modifying a version of the
+<tt>example-idt</tt> demo, which one of the class demos included is
+the code in <a href="prot.tar.gz"><tt>prot.tar.gz</tt></a>.
+Once you have a copy of that file in your
+<tt>llp</tt> directory (i.e., the one that you share with the virtual
+machine, which will be <tt>~/Documents/llp</tt> if you've followed the
+defaults suggested in previous labs), then you should be able to unpack
+and inspect it using the following commands:
+</p><pre>
+  tar xvzf prot.tar.gz
+  diff -r -C 2 example-idt switching
+</pre>
+<p>The <tt>diff</tt> command here gives us a concrete way to compare
+the code in the <tt>example-idt</tt> and
+<tt>switching</tt> folders.  The <tt>-r</tt> command line flag indicates that
+we want to compare directories (it is a mnemonic for "recursive",
+specifying that <tt>diff</tt> should "recurse" in to subdirectories), while
+the <tt>-C 2</tt> flag requests two lines of surrounding "context" for
+each change that is displayed, which can make the output a little easier
+to understand,
+even if it is also a bit longer as a result.  At this point, the only
+differences are a change in the menu entry for the GRUB configuration
+file and a couple of additional files (which will be introduced later),
+as shown in the following output:
+</p><pre>
+  diff -r -C 2 example-idt/grub.cfg switching/grub.cfg
+  *** example-idt/grub.cfg        2017-10-07 10:07:13.000000000 -0700
+  --- switching/grub.cfg  2017-10-07 10:07:13.000000000 -0700
+  ***************
+  *** 2,6 ****
+    #set default=0
+    
+  ! menuentry "protected mode kernel using a simple GDT and IDT" {
+      multiboot /mimgload
+      module    /image.gz
+  --- 2,6 ----
+    #set default=0
+    
+  ! menuentry "context switching demo" {
+      multiboot /mimgload
+      module    /image.gz
+  Only in switching/kernel: hardware.h
+  Only in switching/kernel: initpic.s
+</pre>
+<p>Keep that <tt>diff</tt> command in mind as you proceed with the
+exercises described below: it might be useful if things are not
+working as you expect at some point and you want to get a detailed
+summary of exactly which parts of the code you have modified.  And,
+of course, <tt>diff</tt> output might also be <em>very</em> useful
+when you're writing up the work you've done for this lab and want
+a reminder of all the changes you've made ...</p>
+
+<p>To complete your preparations for the following exercises,
+use the following commands to ensure that all of the necessary
+libraries and tools are built before you run the initial version
+of the code in the <tt>switching</tt> folder:
+</p><pre>
+  make
+  cd switching
+  make run
+</pre>
+<p>
+Of course, at this point in the process, other than the change in the
+GRUB menu, you should see exactly the same behavior as if you were
+running the original <tt>example-idt</tt> example, as demonstrated in
+class.  If you're getting a different result, or if you're unable to
+compile and/or run the program at all, make sure you ask for help
+before proceeding further.</p>
+
+<p>Again, keep the above commands in mind as you proceed; you'll
+likely be using <tt>make run</tt> quite heavily as you work through
+the steps below, but remember that you need to be in the <tt>switching</tt>
+directory for it to work correctly.  And don't forget that you can always
+use <tt>make clean</tt> if you ever need to clear out
+old versions of compiled code before a recompile, or before making a
+tarball or zipfile containing your code.</p>
+
+<p>One last note: Pay particular attention to questions that end with
+<b>three question mark symbols</b>: it will be particularly important
+that you are able to answer those questions as a way of checking your
+understanding, and it would be good to write down your answers as you
+proceed through each of the steps.  Where is the first such question
+in this document???
+</p>
+
+<p>Ok, let's get to work!</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 1: "hlt is a privileged instruction"</h2>
+<p>
+In this first step, we'll demonstrate that <tt>hlt</tt> is a
+<em>privileged</em> instruction, which means that it cannot be executed
+in user mode.  (Or, at least, you can try to execute <tt>hlt</tt> in
+protected mode, but it won't actually halt the system!)</p>
+<p>
+Start by adding a new function called <tt>yield</tt> to the user mode
+program (i.e., the code in the <tt>switching/user</tt> folder).
+Implement this function in assembly code (in
+<tt>userlib.s</tt>), using a simple body that attempts to halt the
+machine by using a <tt>hlt</tt> instruction.  You can use the
+implementation of <tt>kputc</tt> as a guide for this.  In particular,
+don't forget to declare <tt>yield</tt> as a global symbol so that it
+will be accessible from your C code.  For safety, you might also
+add a <tt>jmp</tt> instruction so that your program will jump back to
+retry the <tt>hlt</tt> if, for some reason, the program ever gets to
+execute any following code.  You should also add a prototype for this
+function (<tt>extern void yield(void);</tt>) at the top of <tt>user.c</tt>,
+and insert a call to this function as the last statement in the body
+of the <tt>for</tt> loop in <tt>cmain()</tt>.
+</p>
+<p>
+Try the command <tt>make run</tt>; can you explain the results???
+</p>
+<p>
+This might be a good time to introduce the QEMU monitor.  While you
+are running a program in QEMU, you can hit Ctrl-Alt-2 to switch
+to QEMU's monitor window, or Ctrl-Alt-1 to switch back to the main QEMU
+display.  (On a Mac host, you can use the "Option" key instead of "Alt".)
+The monitor is useful because it allows you to type in simple
+commands to control and inspect the state of the virtual machine.
+For example:
+<ul>
+<li> <tt>"info cpus"</tt> lists current CPU status
+
+<li> <tt>"info registers"</tt> displays the values of all CPU registers
+   (Use Ctrl up arrow and Ctrl down arrow to scroll)
+
+<li> <tt>"print $eax"</tt> displays the value of the <tt>eax</tt> register.  More
+   generally, you can use <tt>"print expr"</tt>.  (Note that <tt>"print"</tt> can be
+   abbreviated as <tt>"p"</tt>.)
+
+<li><tt> "xp /fmt addr"</tt> displays the contents of (physical) memory
+   at the specified address (which can be a specific number or a
+   register name, such as <tt>$eip</tt>).  The <tt>fmt</tt> parameter determines how
+   the data is displayed.  For example, <tt>/5i</tt> will display the next
+   five instructions.
+
+<li> <tt>"quit"</tt> aborts the current program and terminates QEMU
+</ul>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 2: "Privileged instructions <i>can</i> be executed in Ring 0"</h2>
+
+<p>
+We'll start by arranging for the user mode program to ask the kernel
+to halt the system, instead of trying to execute the halt instruction
+itself.  For this, you should modify your implementation of <tt>yield</tt> to
+use <tt>int $129</tt> instead of <tt>hlt</tt>.  (If you prefer to work in
+hexadecimal, remember that <tt>$129</tt> is just another way of writing
+<tt>$0x81</tt>.)  Don't forget to add a
+<tt>ret</tt> instruction after the <tt>int $129</tt> so that your program
+will return to the code where <tt>yield()</tt> was called after the
+interrupt has been handled.
+</p>
+<p>
+Now we'll need to make sure that the kernel can respond to this
+interrupt.  In the <tt>kernel</tt> directory, specifically in
+<tt>init.s</tt>,
+create an interrupt handler stub
+for <tt>yield</tt> that will execute the <tt>hlt</tt> instruction.  In addition,
+you'll need to make sure that the IDT will contain an appropriate
+entry.  To a large degree, you can model your implementation on what
+was done for <tt>"kputc"</tt> ...
+</p>
+<p>
+Now what happens???  How did you confirm that you got the right
+result??? (Make sure, in particular that there is no
+message indicating that an exception has occurred, and check
+what QEMU has to say about <tt>info cpus</tt>.)
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 3: "A (slightly) more interesting system call"</h2>
+
+<p>
+Now let's provide a (slightly) more interesting implementation of
+yield by making the interrupt handler jump to a label <tt>"yield_imp"</tt>.
+Again, you can use <tt>"kputc"</tt> as a model.  We'll write the <tt>yield_imp</tt>
+function in C as part of the code for <tt>kernel.c</tt>:
+</p><pre>
+  void yield_imp() {
+      printf("Yielding ...");
+      switchToUser(&amp;user);
+  }
+</pre>
+<p>
+The first line in this implementation allows us to see that the
+kernel is running (the output appears on the left hand side of the
+screen).  The second line sends us back in to the user mode program.
+(The kernel never actually returns from <tt>yield_imp()</tt>!)
+</p>
+<p>
+What happens if you omit the line <tt>switchToUser(&amp;user);</tt> in
+the code above???  How accurately can you predict the result before you
+run the program???
+</p>
+<p>
+Verify that this works in the way you would expect ... (and if
+you're not sure what to expect, then ask for some help and try to
+talk it through ...)
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 4: "Multiple user processes"</h2>
+
+<p>
+In the <tt>user</tt> directory, create a new version of the <tt>user</tt>
+program called <tt>user2</tt>.  You'll need to make copies of the
+<tt>user.c</tt> source file and the <tt>user.ld</tt> script.  I would
+suggest modifying the two <tt>.c</tt> files so that you can tell which
+one is running by looking at the output messages that they produce.
+As for the loader script, we'll want to load both user programs
+in memory at the same time, so they can't both start at the same
+address.  I suggest configuring <tt>user2</tt> to load at address
+<tt>0x500000</tt>, corresponding to 5MB.  Edit the <tt>Makefile</tt>
+so that you can build both the <tt>user</tt> and <tt>user2</tt>
+executables by using the <tt>make</tt> command.  (It's ok to copy,
+paste, and then edit the relevant parts of the rules for building
+<tt>user</tt> and <tt>user.o</tt>.)  While we're editing Makefiles,
+be sure to add <tt>user/user2</tt> to the <tt>mimgmake</tt> command
+in the main <tt>Makefile</tt> (i.e., the <tt>Makefile</tt> in your
+<tt>switching</tt> folder).  (Also, in case you're not already aware of
+this detail, it might be worth pointing out that all of the command
+lines in a <tt>Makefile</tt> must begin with at least one tab
+character.)
+</p>
+<p>
+As a review, <tt>mimgload</tt> inserts three entries into the
+headers array for each item on the <tt>mimgmake</tt> command
+line in the <tt>Makefile</tt>.  For example, the first item in
+the command line is the bootdata, and its start, end, and entry
+addresses will therefore be listed in entries 1, 2, and 3,
+respectively, of the headers array.  Following the same pattern,
+the start, end, and entry addresses for the original <tt>user</tt>
+program will be in entries 7, 8, and 9, while those for
+<tt>user2</tt> will be in entries 10, 11, and 12.  [If you
+need more guidance in understanding these numbers, check out
+the code at the start of the <tt>kernel()</tt> function that
+prints out the header values, and cross reference that with
+the output that you see on screen.]
+</p>
+<p>
+We'll also take this opportunity to clean up the display a little.
+I suggest modifying the start-up code for the two user programs so
+that they set the text windows shown below:
+</p>
+<p>For <tt>user</tt>:</p>
+<pre>
+  setWindow( 1, 11, 47, 32);   // user1 process on upper right hand side
+</pre>
+<p>For <tt>user2</tt>:</p>
+<pre>
+  setWindow(13, 11, 47, 32);   // user2 process on lower right hand side
+</pre>
+<p>
+In addition, you can modify the code that configures the display at
+the start of the main <tt>kernel()</tt> function in <tt>kernel.c</tt>:
+</p><pre>
+  setAttr(0x2e);               // Create a PSU Green border
+  cls();
+  setWindow(1, 23, 1, 45);     // kernel on left hand side
+  setAttr(7);
+  cls();
+  printf("Protected kernel has booted!\n");
+</pre>
+<p>
+The following picture shows the corresponding regions on the screen
+for each of these three programs.  (But note that <b>the output that
+you get right now won't actually look like this in all details until
+we get to the end of Step 6</b> and have managed to get both user
+programs running.)</p>
+<p align=center><a href="annlayout.png"><img src="annlayout.png" width=540></a></p>
+<p>How can you verify that your program runs correctly?  [Hints: Look
+at the memory map
+and header information that is displayed to confirm that both user
+programs have been loaded at the expected addresses, and that the
+entry points that are displayed make sense.]</p>
+
+<p>You can (and should) experiment with modifying the kernel so that it
+will run the second user program instead of the first.  Make sure that
+you are using the header information from the <tt>BootData</tt> information
+rather than hardwiring a specific address in to your code: those
+addresses might change if we do more work on the user programs later
+on ...
+</p>
+<p>
+At this point in time, however, the <tt>kernel</tt> code will only be able
+to run one of the two user programs.  Wouldn't it be nice if we could
+run both?  At the same time?
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 5: "Multiple contexts"</h2>
+
+<p>
+Add some new global variables to <tt>kernel.c</tt> so that we can store two
+<tt>Context</tt> structures, one for each of the two user programs:
+</p><pre>
+   struct Context user[2];
+   struct Context* current;
+</pre>
+<p>Replace the code that initialized the original <tt>user</tt>
+context with code that will initialize the two separate structures
+in the new user array, one for each of our two user mode programs.
+Note that you can use the expressions <tt>(user+0)</tt> and
+<tt>(user+1)</tt> to get the addresses of the two context structures.
+Of course, you can simplify the first of those to just <tt>user</tt>,
+if you prefer.</p>
+
+<p>Update the rest of the program so that any remaining references to
+<tt>user</tt> are replaced with appropriate uses of <tt>"current"</tt>
+instead.  Note that <tt>"current"</tt> is a pointer, so you won't
+have to take its address using <tt>&amp;</tt>, but you will need to
+use the <tt>-&gt;</tt> operator instead of the <tt>.</tt> operator
+to access its fields.  What results do you expect to get when you
+initialize <tt>current</tt>, either to <tt>(user+0)</tt>, or to
+<tt>(user+1)</tt>, and do you see those results in practice???</p>
+
+<p>Using these two <tt>Context</tt> structures, we will be able to
+switch back and forth between executing the two user programs.  To make
+this work, we'll run one program for a bit, then save its registers
+in the associated <tt>Context</tt> structure, load the registers for
+the other program from its <tt>Context</tt>, and start executing the
+second program.  We can repeat this process indefinitely until both
+programs are done.   It should now be clear why we refer to this
+technique as "context switching".  But this leaves a question that
+we haven't tackled directly so far: Why did we go to the trouble of
+making <em>two</em> distinct <tt>user</tt> programs???  For example,
+why can't we just use <em>one</em> program but run multiple copies of
+it at the same time by having a separate <tt>Context</tt> structure
+for each one???</p>
+
+<p>You might be tempted to add context switching at this point, but
+<b>make sure you've completed the steps above and that everything is
+working correctly before you move on ...</b></p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 6: "Context Switching"</h2>
+
+<p>
+Update your <tt>yield_imp()</tt> implementation so that it changes the
+value of <tt>current</tt> each time it is called to alternate between the
+two user contexts.  Something like the following should do the
+trick:
+</p><pre>
+    current = (current==user) ? (user+1) : user;
+</pre>
+<p>
+Test to see if you get the desired behavior.  [Hint: it will
+probably be pretty close, but not exactly perfect ... you may
+need to look very carefully to see what is missing.]
+Did this version of the program work correctly???  If so, how
+did you verify that???  If not, what was wrong???
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 7: "May I interrupt you (on a regular basis)?"</h2>
+
+<p>
+Now we're going to use the hardware to force context switching
+at regular intervals, even if the user programs don't <tt>yield()</tt>.
+To get started, you can prevent <tt>yield</tt> from having any effect at
+all by commenting out the line we just put in to change contexts.
+Now that's gone, we'll know that any context switching that occurs
+will be the result of whatever new code we add.  If you really want
+to be sure, you can delete the calls to <tt>yield()</tt> altogether
+in both user programs.  (If you keep the calls to <tt>yield()</tt>
+in your user programs and don't comment out the context switching
+line in the <tt>yield_imp()</tt> function, then you might notice some
+significant, negative impacts on performance and functionality; by all
+means feel free to come back later on to experiment with this and see
+if you can figure out why this is happening ...)
+</p>
+<p>
+Unfortunately, however, we are going to need a fair bit of new code to
+complete this step:
+<ul>
+<li><p>The code in the <tt>switching/kernel</tt> subdirectory includes
+    an assembly code source file, <tt>initpic.s</tt>, that was not
+    part of the original <tt>example-idt</tt> demo program.  You're
+    not expected to understand the details of how it works at this
+    point, but the code in this file implements a function that could
+    be declared in C as:
+</p><pre>
+     extern void initPIC();
+</pre></p>
+    that initializes a standard hardware component on the PC called the
+    PIC, or <em>Programmable Interrupt Controller</em>.  To make this
+    code available, you'll need to modify the <tt>Makefile</tt> so that
+    <tt>initpic.s</tt> is compiled (strictly speaking, assembled) and
+    linked in with the <tt>kernel</tt> executable.  [Hint: You can follow
+    the pattern that is used for <tt>init.s</tt>.]  You should also add
+    the above function prototype somewhere near the top of
+    <tt>kernel.c</tt>.</p>
+
+<li><p>The <tt>switching/kernel</tt> subdirectory also includes an extra
+    header file called <tt>"hardware.h"</tt>.  This file provides
+    implementations of some functions for interacting with the PIC, as
+    well as some code for configuring a second hardware device, the PIT,
+    or <em>Programmable Interval Timer</em> that is also part of standard
+    PC systems.  Again, you're welcome to peruse the code, but not
+    expected to understand all of the details.  But one thing you will
+    need to do is to <tt>#include "hardware.h"</tt> at the top of your
+    <tt>kernel.c</tt> source file.</p>
+
+<li><p>Add a new interrupt handler in <tt>init.s</tt> with the following code:
+</p><pre>
+     timerHandler:
+        sub     $4, %esp
+        push    %gs
+        push    %fs
+        push    %es
+        push    %ds
+        pusha
+        leal    stack, %esp
+        jmp     timerInterrupt
+</pre><p>
+  You will also need to add an entry for this handler in the IDT;
+  be sure to use slot 32 for this because that is the slot that
+  the timer hardware is configured to use.  Note, however, that
+  you won't need to specify a <tt>dpl</tt> parameter this time;
+  the default value of <tt>0</tt> will work just fine.</p>
+
+<li><p>Next, add an implementation of the <tt>timerInterrupt</tt> function (which
+  appeared as the target of the <tt>jmp</tt> instruction in the previous chunk
+  of assembly code) in your <tt>kernel.c</tt> file.  Something along the
+  following lines should do the trick:
+</p><pre>
+    static void tick() {
+        static unsigned ticks = 0;
+        ticks++;
+        if ((ticks&15)==0) {
+            current = (current==user) ? (user+1) : user;
+        }
+    }
+
+    void timerInterrupt() {
+      maskAckIRQ(TIMERIRQ);
+      enableIRQ(TIMERIRQ);
+      tick();
+      switchToUser(current);
+    }
+</pre><p>
+  I've separated this code in to two sections so that you can focus
+  on the code in the <tt>tick()</tt> function and not worry too much about
+  the details of interrupt handling in the main <tt>timerInterrupt()</tt>
+  function.  We'll learn more about how the latter function works in
+  the coming weeks.</p>
+
+<li><p>The final step is to enable interrupts.  (You might want to check
+  that all of the code above is compiling and running as expected
+  before you do this.)  There are two parts to this.  First, we need
+  to make sure that user processes can be interrupted.  We do this
+  by making sure that the <tt>IF</tt> bit is set in the <tt>eflags</tt> register for
+  each user program.  This can be done at the time we initialize
+  the associated contexts: look at the definition of <tt>INIT_USER_FLAGS</tt>
+  in <tt>context.h</tt>, and add in the <tt>1 &lt;&lt; IF_SHIFT</tt> component (or just
+  use the <tt>#define</tt> for <tt>INIT_USER_FLAGS</tt> that has been commented out)!
+</p><p>
+  Last, but not least, add the following two lines, in the <tt>kernel()</tt>
+  function, right before the point where you start running a user
+  mode program for the first time:
+</p><pre>
+      initPIC();
+      startTimer();
+</pre>
+</ul>
+<p>
+With all these changes in place, your kernel will configure the PIC
+and PIT to interrupt the system 100 times a second, executing the
+<tt>tick()</tt> function each time that happens.  And once every 16 calls,
+it will automatically context switch between the two user programs,
+ensuring that both run to completion!  (We don't need to context
+switch as frequently as 100 times a second&mdash;that might create
+unnecessary overhead.  And so we choose to switch at 1/16 of that
+frequency instead.)
+</p>
+<p>
+How can you tell that the program is working correctly???
+For demonstration purposes, you might like to increase the number of
+loop iterations in the two user programs (and have the loop bodies print
+out the current value of <tt>i</tt> at each step so that you can see it
+increasing).  I'd suggest trying 200 iterations in <tt>user.c</tt> and
+400 in <tt>user2.c</tt> so that you can see both running together, as
+well as what happens when one stops.  (Adjust these numbers up or down,
+depending on how fast your VM seems to be running; so long as there is a
+noticeable gap between the times that the two user processes finish
+doing "useful work", the exact numbers are not important.)
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 8: "Are you sure we're really protected?"</h2>
+
+<p>
+Although we are running in "protected" mode, there is, in fact, no real
+protection between the code in the different programs.  To illustrate
+this, we'll modify <tt>user.c</tt> and <tt>user2.c</tt> to see how one can "interfere"
+with the other.
+</p>
+<p>
+First, in <tt>user.c</tt>, add the definition of a variable:
+</p><pre>
+   volatile unsigned flag = 0;
+</pre>
+<p>
+and then insert the following lines immediately after the main loop:
+</p><pre>
+  printf("My flag is at 0x%x\n", &flag);
+  while (flag==0) {
+     /* do nothing */
+  }
+  printf("Somebody set my flag to %d!\n", flag);
+</pre>
+<p>
+Clearly, <tt>flag</tt> is initialized to zero, and there are no other assignments
+to <tt>flag</tt> in the code for <tt>user.c</tt>, so we would not expect the while loop
+seen here to terminate.  Try building and running the program to confirm
+that the <tt>"Somebody set my flag ..."</tt> message does not appear.
+</p>
+<p>
+Next, pay careful attention to the address that the user program displays
+in the <tt>"My flag is at ADDR"</tt> message, and then add the following lines
+after the body of the loop in <tt>user2.c</tt>:
+</p><pre>
+  unsigned* flagAddr = (unsigned*)ADDR;
+  printf("flagAddr = 0x%x\n", flagAddr);
+  *flagAddr = 1234;
+</pre>
+<p>
+where <tt>ADDR</tt> is replaced with the previously observed flag address.  Make
+and run to see what happens now.  Oh dear.  And what is special about
+addresses that are part of the <tt>user</tt> program?  In other words, is
+there anything that might prevent <tt>user2</tt> from interfering with (or
+even rewriting) the <tt>kernel</tt> code???  Oh dear indeed.  We'll have to work
+on this some more ... :-)
+</p>
+<p>
+[Of course, this shouldn't really be a surprise: our kernel and user
+programs have been happily writing in to the same video RAM ever since
+we got started with these exercises; it's only the careful choice of
+parameters to <tt>setWindow()</tt> that have prevented them from interfering
+with one another before now ...]
+</p>
+<p>
+But to have just a little more fun before we get there ...
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 9: "What time is it?"</h2>
+
+<p>
+As a stretch goal, you might like to try adding a "clock" that provides
+a continuous display of the current time (i.e., the number of <tt>ticks</tt>
+since the kernel started) on the top line of the video RAM.  The
+fine details of how you do this are up to you: you don't need to worry
+about displaying the actual time of day, counting seconds, or displaying
+a traditional clock face.  For example, I thought that showing an eight
+digit hexadecimal display would be a good approach, especially
+after I had spent some time thinking about how to generate hex output
+for numeric values at the end of the earlier video RAM lab ...
+</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>The end</h2>
+<p>
+That wraps up the context switching lab, but be sure that you
+understand how all this code works (and ask for help if you do
+not) because we'll definitely be building on this work as our
+foundation for studying paging and virtual memory in the next lab!
+</p>
+
+<br/>
+<!-- Main material ends here-->
+</TD>
+</TR>
+</TABLE>
+
+<hr>
+
+</BODY>
+</HTML>

@@ -1,0 +1,584 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<TITLE>Paging, Part 2</TITLE>
+<style type="text/css">a {text-decoration: none}</style>
+</HEAD>
+<body text="#000000" bgcolor="#ffffff" link="#964800" vlink="#804000">
+
+<TABLE CELLSPACING=0 BORDER=0 CELLPADDING=0 align="center">
+<TR>
+<TD align="left" valign="top">
+  <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
+  This page last updated: December 2018.
+</TD>
+<TD align="right" valign="top">
+  <FONT SIZE=6>Paging, Part 2: Processes</FONT><br/>
+  Fall 2018
+</TD>
+</TR>
+<TR>
+<TD colspan="2">
+<!-- Main material goes here -->
+<hr>
+<p>
+The exercises described on this page build on the code base that
+you have developed in <a href="../4-paging/index.html">Paging, Part 1</a>.
+The starting point for those previous exercises included skeleton code
+including a number of <tt>TODO</tt> items.  But, by the time you were
+done, almost all of those annotations should have been erased and
+you won't find any new <tt>TODO</tt>s to help you this time round.
+In general, I'm assuming that you're getting to be more familiar
+with finding your way around the code and that you'll be confident
+in modifying and extending it without quite as much direct guidance.
+However, the exercises on this page are quite challenging, and will
+take some time to work through, so <em>please ask if you need a little
+extra help at any stage</em>.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 1: Review</h2><p>
+<p>We'll start with a review of what was covered in the previous
+set of exercises.  You should make sure that you have completed
+all of those steps, with all of the features summarized below,
+before continuing with this set of exercises.  Specifically, as
+your starting point, you should have built a modified version
+of the initial <tt>paging</tt> code that has the following
+features:</p>
+<ul>
+<li><p>Boot code that creates an initial page directory, enables paging,
+    and relocates to an address in the upper 1GB of the virtual address
+    space.</p>
+<li><p>A set of macros for finding page boundaries relative to a given
+    address (see <a href="../paging/index.html#Step2">Step 2</a> in
+    the previous set of exercises for details).</p>
+<li><p>Initialization code that scans the memory map provided in the
+    boot information from <tt>mimgload</tt> to find an unused region of physical
+    memory running from <tt>physStart</tt> to <tt>physEnd</tt>.</p>
+<li><p>An <tt>allocPage()</tt> function that allocates a single page
+    of memory, together with <tt>allocPdir()</tt> and <tt>allocPtab()</tt>
+    functions that can be used to allocate memory for individual page
+    directory and page table structures, respectively.</p>
+<li><p>A <tt>mapPage()</tt> function that can be used to create a
+    mapping from a specified virtual address to a corresponding
+    physical address.</p>
+<li><p>Some simple test code that allocates and initializes a new
+    page directory structure that includes mapping for the kernel
+    space in addresses over 3GB and a mapping for a 4KB page, starting
+    at address <tt>0xb8000</tt> in the virtual address space, to the same
+    address in physical memory.</p>
+</ul>
+<p>The 4KB page mapping described in the last step will allow
+user mode code to access the video RAM.  But, up to this point,
+we don't actually have any user space code that is ready to run!
+Fixing this will be our first big task in the following exercises.
+Once we've done that, however, we might start to worry about
+whether it is appropriate to allow all user mode processes to
+access video RAM.  For example, this might allow different programs
+to interfere with or monitor one another by reading and writing
+portions of the video RAM that are supposedly outside their own
+"window".  Fixing this will be our second task in what follows.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 2: Finding a user mode program to run</h2><p>
+The boot information that is displayed when the <tt>kernel</tt>
+program starts running should indicate that one (or perhaps more)
+user programs has been loaded in to physical memory when the system
+was initialized.  But, up to this point, we have not done anything
+to allow that program to be executed.  For this to be possible,
+we'll need to add some appropriate mappings to our page directory.</p>
+
+<p>The start and end addresses for the (first) user program should be
+available to you in <tt>hdrs[7]</tt> and <tt>hdrs[8]</tt> from the
+initial boot information.  Maybe you should try printing out those
+addresses just to confirm that you can read them properly ... Don't
+forget, however, that those values will produce <em>physical</em> rather
+than <em>virtual</em> addresses, and that they will be accessed through a
+<tt>BootData</tt> structure whose address (and contents) were also
+specified by physical addresses.  Now that we're running with the
+kernel at high virtual addresses, potentially without mappings for
+low virtual addresses, we should make some adjustments to ensure
+that we're reading the bootdata through kernel space addresses.
+For example, the main bootdata structure should be accessible at
+<tt>fromPhys(struct BootData*, 0x1000)</tt>.  You should make
+corresponding changes to ensure that you are reading the headers
+and memory map fields using kernel space addresses too ...</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 3: Adding some user mode mappings</h2><p>
+Once you've found the region of memory where the user program
+is stored, you'll want to add some corresponding entries to
+the new page directory to ensure that there are appropriate
+mappings for all of the corresponding pages in the user code.
+This should be
+fairly easy to accomplish using your <tt>mapPage()</tt> function,
+and you can use <tt>showPdir()</tt> to check your results.  But
+do remember that the start and end addresses of the memory where
+the user code is stored might not always correspond to page
+boundaries, so again you might need to make some adjustments.
+Specifically, if you want to make sure that all of the memory
+between some addresses <tt>lo</tt> and <tt>hi</tt> is 
+accessible, then you will actually need to map everything
+from <tt>pageStart(lo)</tt> to <tt>pageEnd(hi)</tt>.  As a further
+hint, remember that you can use a macro call <tt>pageNext(p)</tt>
+to find the address of the first page after <tt>p</tt>.</p>
+
+<p>As a crosscheck (remembering that your output may look slightly
+different), the output on my system shows that the user program is
+loaded at addresses <tt>[400000-4025bf]</tt>, and after I've added
+the user space mappings for this, my new page directory looks
+something like this:</p>
+<pre>
+  Page directory at c0406000
+    [0-3fffff] =&gt; page table at c0407000 (physical 407000):
+      b8: [b8000-b8fff] =&gt; [b8000-b8fff] page
+    [400000-7fffff] =&gt; page table at c0408000 (physical 408000):
+      0: [400000-400fff] =&gt; [400000-400fff] page
+      1: [401000-401fff] =&gt; [401000-401fff] page
+      2: [402000-402fff] =&gt; [402000-402fff] page
+    300: [c0000000-c03fffff] =&gt; [0-3fffff], superpage
+    301: [c0400000-c07fffff] =&gt; [400000-7fffff], superpage
+    302: [c0800000-c0bfffff] =&gt; [800000-bfffff], superpage
+    303: [c0c00000-c0ffffff] =&gt; [c00000-ffffff], superpage
+    304: [c1000000-c13fffff] =&gt; [1000000-13fffff], superpage
+    305: [c1400000-c17fffff] =&gt; [1400000-17fffff], superpage
+    306: [c1800000-c1bfffff] =&gt; [1800000-1bfffff], superpage
+    307: [c1c00000-c1ffffff] =&gt; [1c00000-1ffffff], superpage
+</pre>
+<p>In this case, we can see that the user code fits in to three
+pages, starting at address <tt>0x400000</tt>.  Experiment
+with changing the address at which the user program is loaded
+[Hint: this is specified in <tt>user/user.ld</tt>] and you should
+see corresponding changes in the way that the new page directory
+is populated.  For example, what happens if the load address is
+<tt>0x400eff</tt> (close to the end of the first page after 4MB)
+or <tt>0x402eff</tt> (a couple of pages further on)???</tt>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 4: Running the user program in the new page directory</h2>
+<p>You probably have just one lingering <tt>TODO</tt> item near
+the bottom of the <tt>kernel</tt> code where some old code from
+<tt>example-idt</tt> to initialize and run the user program was
+commented out.  Now might be a good time to reinstate that code and
+check that it works as you would hope and expect.</p>
+
+<p>As a general rule, it would be good to delay switching to your
+new page directory until after all of the appropriate entries have
+been added.  Reorder the statements in your code so that it doesn't
+make the call to <tt>setPdir()</tt> until immediately before the
+<tt>switchToUser()</tt> call.  This likely won't make a difference in
+this situation, but it is a good practice in general: loading a new
+page directory will flush out old TLB entries and make sure that the
+memory management unit reads the most recent entries that you have
+installed in the new page directory and any associated page tables.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 5: Preparing to context switch</h2><p>
+We're going to want to run multiple user programs at the same
+time, and that's going to require similar steps to what you
+did in the context switching lab to enable timer
+interrupts.  If you don't remember what you did there, then
+you can either look at the <a href="../switching">original
+instructions</a> or else take a peek at your code from that
+lab.  As a quick summary, you'll need to make some changes:</p>
+<ul>
+<li><p>in <tt>kernel/kernel.c</tt>: add an include for
+<tt>"hardware.h"</tt>; insert a call to <tt>startTimer()</tt>;
+and define a suitable <tt>timerInterrupt()</tt> function.</p></li>
+
+<li><p>in <tt>kernel/init.S</tt>: add an entry to the IDT for
+the timer interrupt (hardware interrupt 0, so it goes in at
+slot 32), calling a new system call handler (I'd suggest that
+you call the handler something like <tt>timerHandler</tt>);
+then add the assembly code for your new handler (you can model
+that on the code for another system call) that ends by branching
+to the <tt>timerInterrupt()</tt> function that you defined in
+<tt>kernel/init.S</tt>.</p></li>
+</ul>
+<p>There are quite a few fiddly details to get right here, so
+proceed carefully, and be prepared to edit the revised code if
+it doesn't compile first time.  If you didn't get as far as
+adding a clock display in the context switching demo,
+then you might at least want to arrange for the timer interrupt
+handler to print an occasional <tt>"."</tt> on the screen so that
+you can be sure that the timer is running.  But make sure you
+don't actually try to context switch just yet: we'll need to
+have more than one context first!
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 6: A simple process abstraction</h2><p>
+In our original work with context switching, it was enough just
+to package up the registers associated with each different user
+program in a <tt>struct Context</tt> data structure.  But to
+prevent interference between different user space programs, we're
+going to run each one in a different address space: in other
+words, we're going to need a different page directory for each
+user program that we run.  With this in mind, it makes sense
+to define a new data structure to store all of the information
+that we need for each user program:</p>
+<pre>
+    struct Process {
+        struct Context ctxt;
+        struct Pdir*   pdir;
+    };
+</pre>
+<p>(You might think that we could just add the <tt>pdir</tt> field
+to our <tt>Context</tt> structure.  That would work right now, but
+having a separate <tt>Process</tt> structure will probably work out
+better later on when we start adding more fields for each process.)</p>
+
+<p>As a relatively simple step, you should update your code to
+work with a <tt>struct Process</tt> object called <tt>proc</tt>,
+containing both a context and a page directory, instead of the
+original <tt>user</tt> object (which was a <tt>struct Context</tt>).
+In particular, this will mean changing every reference to
+<tt>user</tt> in the previous version of your code to a reference
+to <tt>proc.ctxt</tt>.  It would also be a good idea to initialize
+the <tt>pdir</tt> field of <tt>proc</tt> to the <tt>newpdir</tt>
+that you've worked hard to create, and then use <tt>proc.pdir</tt>
+when you activate the new page directory.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 7: Creating multiple processes</h2><p>
+In this step, we're going to create two separate processes, each of
+which can run its own copy of the user-level program.  Unfortunately,
+the <tt>BootData</tt> headers tell us where the code and data for
+the user program begins and ends, but they don't provide any more
+details about which parts of that memory correspond to <tt>.text</tt>
+sections (i.e., program code that could potentially be shared between
+multiple instances of a user program) and <tt>.data</tt> sections
+(which would require a separate copy for each program).  For this
+reason, we'll need to create two completely separate copies of the
+user program so that each one can have its own <tt>.data</tt>.</p>
+
+<p>I suggest that you approach this in multiple steps:</p>
+<ul>
+<li><p>First, write a <tt>copyRegion()</tt> function that will
+    make a fresh copy of the pages containing the memory between two
+    given physical addresses, <tt>lo</tt> and <tt>hi</tt>.
+    The basic definition for this function might look something
+    like the following:
+</p>
+<pre>
+    unsigned copyRegion(unsigned lo, unsigned hi) {
+        // Check that lo&lt;hi, and take appropriate steps to
+        // ensure that lo and hi correspond to suitable page
+        // boundaries.
+
+        // Figure out if there is enough memory left in the
+        // pool between physStart and physEnd to make a copy
+        // of the data between lo and hi.
+
+        // Make a copy of the data.  You'll need to convert
+        // between physical and virtual addresses in some way
+        // here, but it would be nice to avoid having to do
+        // that on every loop iteration ...
+
+        // Update physStart as necessary.
+
+        // Return the physical address of the start of the
+        // region where the new copy was placed.
+    }
+</pre>
+<p>
+    Your implementation of <tt>copyRegion()</tt> will have some
+    strong similarities to the code that you wrote for
+    <tt>allocPage()</tt> except that <tt>copyRegion()</tt> will
+    often need to allocate more than one page of physical memory
+    at a time.  By all means add some <tt>printf()</tt> calls
+    in your code so that you'll be able to check that your
+    <tt>copyRegion()</tt> function works correctly when it is
+    executed.</p>
+
+<li><p>Next, you can write a function that will allocate a new page
+    directory that includes appropriate mappings for the user
+    program.  Something like the following would likely be a good
+    place to start:
+    </p>
+<pre>
+    struct Pdir* newUserPdir(unsigned lo, unsigned hi) {
+      struct Pdir* pdir = allocPdir();
+      unsigned phys = copyRegion(lo, hi);
+
+      // Add a mapping for video RAM
+
+      // Add mappings to ensure that the region between lo and
+      // hi in the new address space is mapped to the appropriate
+      // portions of the pages starting at address phys.
+
+      return pdir;
+    }
+</pre>
+<p>You should be able to adapt some of the code that you wrote previously
+in Step 3 for this; the difference now is that you'll be using different
+virtual and physical addresses for the extra mappings: you'll be mapping
+the region from <tt>lo</tt> to <tt>hi</tt> to pages starting at the
+physical address that is returned by your <tt>copyRegion()</tt> function.</p>
+
+<li><p>Now you can write a function that will initialize a given
+<tt>struct Process</tt> using appropriate <tt>lo</tt> and
+<tt>hi</tt> values to initialize the page directory, and a
+suitable <tt>entry</tt> point address to initialize the context.
+Try the following skeleton as a starting point:
+</p>
+<pre>
+    void initProcess(struct Process* proc,
+                     unsigned lo,
+                     unsigned hi,
+                     unsigned entry) {
+        // TODO: fill this in ...
+    }
+</pre>
+</ul>
+<p>After all this, you you should be able to initialize two
+distinct <tt>struct Process</tt> objects and use either one to
+start a user program.  A good way to approach this would be
+to define an array of two <tt>Process</tt> structures, as
+well as a pointer to the <tt>current</tt> process that looks
+something like this:</p>
+<pre>
+  struct Process  proc[2];
+  struct Process* current;
+</pre>
+<p>Be sure to initialize <tt>current</tt> to <tt>proc+0</tt>
+or <tt>proc+1</tt>, and then modify the rest of your code to
+use <tt>current</tt> rather than <tt>proc</tt>.  Note that,
+in places where you previously wrote something like <tt>proc.blah</tt>,
+you will now need to write <tt>current-&gt;blah</tt>, reflecting
+the fact that <tt>current</tt> is a pointer to a <tt>struct</tt>
+rather than the name of a specific <tt>struct</tt>.</p>
+
+<p>(It might be difficult to tell exactly which of the two programs
+is running from the output on screen, but you'll know by looking at
+the code ... or perhaps by inserting some extra <tt>printf()</tt>
+calls ...</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 8: Context switching, at last</h2><p>
+Now you have multiple <tt>Process</tt> objects and a timer interrupt
+signal, you should be able to get the two user programs running
+together at the same time, context switching from one to the other
+on a regular basis.  Don't forget that switching between processes
+doesn't just require a change of context any more ... it also requires
+a change of page directory: you should use a call that looks something
+like the following to accomplish this:</p>
+<pre>
+   setPdir(toPhys(current-&gt;pdir));
+</pre>
+<p>Bad things will happen if you forget to translate the virtual
+address in <tt>current-&gt;pdir</tt> in to a physical address that
+is suitable for loading in to the <tt>CR3</tt> register.  Just to
+reinforce that point, see what happens when you leave out the
+<tt>toPhys()</tt> call.  Wouldn't it be nice if the compiler printed
+an error message and prevented us from running the program when we
+make an error like this?</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 9: Protecting access to video RAM</h2><p>
+At this point, you should have two user processes running, but it
+might be hard to tell because both of them are writing to the same
+region of video RAM.  This highlights the fact that our two programs
+are not quite as <em>protected</em> from one another as we might hope.
+Although neither process has access to the main code or data sections
+of the other, they can both read and write the same locations in
+video RAM.</p>
+
+<p>We could avoid the problem of having both user programs using the
+same window on screen by arranging for some additional information to
+be passed to the user programs when they are first run.  (For example,
+we could provide some parameters to each process, such as the
+coordinates for its video window, by writing appropriate values in
+its initial <tt>Context</tt>.)  This, however, would not do anything
+to prevent the two processes from communicating or interfering with
+one another via the video RAM.</p>
+
+<p>One way to ensure protection is to move the functionality for
+writing to video RAM inside the kernel, and to provide system calls
+that user programs can invoke to produce output on the screen.
+It will take a couple of steps to make this work:</p>
+<ul>
+<li><p>First, we'll need a copy of the <tt>winio</tt> library, which
+    is a version of
+    the original <tt>simpleio</tt> library that supports multiple
+    output windows within a single program.  The key idea is to
+    package up all of the details about a single output
+    window&mdash;including the position, size, attribute, and
+    current coordinates&mdash;in a new <tt>struct Window</tt>
+    object.  You can download a copy of a suitable library from
+    <a href="../winio.tar.gz">this link</a>.  Unpack this file
+    in your main <tt>llp</tt> folder; run <tt>make</tt>
+    inside the <tt>winio</tt> directory; and peruse the
+    <tt>winio.h</tt> header file for details of the functions
+    that it provides. (It's not very long!)</p>
+
+    <p>In addition, <tt>winio</tt> also provides a new
+    version of <tt>printf</tt> that is able to print unsigned
+    integers in a (sometimes) more readable form as a short
+    decimal number followed by a suffix of either <tt>G</tt>,
+    <tt>M</tt>, or <tt>K</tt> if the number is a multiple
+    of 2<sup>30</sup>, 2<sup>20</sup>, or 2<sup>10</sup>,
+    respectively.  For example, using this format, <tt>4096</tt>
+    will be displayed as <tt>4K</tt> while <tt>0xc0000000</tt>
+    will be displayed as <tt>3G</tt>.  To use this new format,
+    insert a <tt>z</tt> character (chosen as a mnemonic for
+    "siZe") between the <tt>%</tt> and the numeric radix specified
+    (typically a <tt>d</tt> for decimal output).  For example,
+    the call <tt>printf("%zd\n", 3*(1&lt;&lt;16));</tt> will
+    display <tt>192K</tt>, which is probably a bit easier to
+    read and understand than <tt>196608</tt>, its full decimal
+    equivalent.</p></li>
+
+<li><p>Next, we'll need to modify the kernel to use <tt>winio</tt>
+    instead of <tt>simpleio</tt>.  This will require changes to the
+    <tt>Makefile</tt> (replace references to the <tt>simpleio</tt>
+    folder with references to the <tt>winio</tt> folder, and change
+    library specification from <tt>-lio</tt> to <tt>-lwinio</tt>.
+    You will also need to change the include lines at the top of
+    <tt>kernel/kernel.c</tt> and <tt>kernel/paging.c</tt> to
+    use <tt>"winio.h"</tt> rather than <tt>"simpleio.h"</tt>.
+    Finally, you'll need to edit the code for <tt>nohandler</tt>
+    in <tt>kernel/init.S</tt>.  Previously, this code used a call
+    to a function called <tt>printf()</tt>, but with <tt>winio</tt>,
+    <tt>printf()</tt> is implemented using a macro that calls the
+    function <tt>wprintf()</tt> with an extra argument called
+    <tt>console</tt>.  In other words, you'll need to replace the
+    line:</p>
+<pre>
+    call    printf
+</pre>
+    with the two lines:
+<pre>
+    pushl   $console      # add the extra argument
+    call    wprintf       # call the new function
+</pre>
+    <p>After these changes, your code should compile and run as before.</p></li>
+
+<li><p>Now we'll need to allow for different user programs to have
+    different windows on the screen.  You can handle this by
+    adding a <tt>struct Window</tt> field called <tt>win</tt> to the
+    definition of <tt>struct Process</tt> and initializing the window
+    parameters in an appropriate way when the rest of the fields in
+    each <tt>struct Process</tt> are initialized.  For consistency
+    with past examples, I would suggest using:</p>
+<pre>
+  wsetWindow(&proc[0].win, 1, 11, 47, 32); // process 0 upper right
+  wsetAttr(&proc[0].win, 1);               // blue output
+
+  wsetWindow(&proc[1].win, 13, 11, 47, 32);// process 1 lower right
+  wsetAttr(&proc[1].win, 4);               // red output
+</pre>
+    <p>Output from the kernel should still use <tt>printf()</tt> and
+    related functions, but output that is produced on behalf of user
+    programs (e.g., in a system call) should use <tt>wprintf()</tt>
+    with the address of the <tt>Window</tt> structure in the
+    corresponding <tt>Process</tt> object.  (In fact, <tt>printf()</tt>
+    is implemented by a C macro that expands to a <tt>wprintf()</tt>
+    call with the previously mentioned<tt>console</tt> as an extra
+    argument.</p></li>
+
+<li><p>Now you should make sure that your kernel provides three system
+    calls: one for outputing a single character within the user program's
+    window; one for clearing the user program's portion of the screen; and
+    one for setting the appropriate video attribute.  I suggest that you use
+    interrupts 129, 130, and 131 for these respectively, keeping the existing
+    entry 128 for <tt>kputc</tt> in place.  In each case, this
+    will require: an entry in the IDT; an assembly language handler to save
+    the context; and the main implementation.  Following the pattern we have
+    seen previously, the first two of those items can be handled by code in
+    <tt>kernel/init.S</tt>, while the last can be handled by adding code in
+    <tt>kernel/kernel.c</tt>.</li>
+
+<li><p>Now that you have provided system calls, you can delete the code
+    that includes a mapping for the video RAM in every page directory
+    structure you create.  This will force user programs to use the
+    kernel system calls for video output and prevent them from interfering
+    with one another.  At the same time, removing that mapping from each
+    page directory will also prevent the kernel from accessing the video
+    RAM at address <tt>0xb8000</tt>.  Fortunately, the kernel can still
+    access this region of memory through the high address mapping to
+    physical memory (i.e., at address <tt>0xc00b8000</tt>, which is
+    just <tt>KERNEL_SPACE+0xb8000</tt>.  However, we do need to add one
+    extra line at the start of the <tt>kernel</tt> main code to configure
+    the <tt>winio</tt> library to work at this address:</p>
+<pre>
+   setVideo(KERNEL_SPACE+0xb8000);
+</pre></li>
+
+<li><p>Finally, you'll need to change the library that user programs use
+    for video output: the old <tt>simpleio</tt> library won't work now
+    that we've taken away the mapping for video RAM.  To simplify this
+    step, I've packaged up another variant of <tt>simpleio</tt> called
+    <tt>userio</tt> that you can <a href="userio.tar.gz">download</a>,
+    unpack (in your main <tt>llp</tt> directory, as usual), and run
+    <tt>make</tt> in the new <tt>userio</tt> folder.
+    Once again, you should peruse the code to get a brief idea about how
+    it works and then make the appropriate changes to the code in the
+    <tt>user</tt> directory.</p></li>
+</ul>
+<p>Although there is nothing very deep or new in the above steps,
+there is quite a lot of work to do, and hence quite a lot of
+potential for making mistakes.  It might take a little while to
+get this working properly, but keep going, ask for help if
+necessary, and you'll get it up and running properly in the end!
+</p>
+
+<p>When everything is finally working as you'd expect, try
+experimenting with the code in <tt>user/user.c</tt>; for
+example, you might want to add more loop iterations, and
+perhaps insert a (nested) loop inside the main loop just
+so you can slow things down enough to see the 
+effect of having two processes run at the same time.  And
+you can also experiment with the <tt>setAttr()</tt> function
+from the <tt>userio</tt> library to change the color of the
+output text.  One final tweak: perhaps you should arrange
+for output that appears in the kernel window but originates
+from a user mode program (via the <tt>kputc</tt> system call)
+to be displayed in a different color so that there is no
+confusion about which parts of the output in the kernel
+window are not part of the kernel's own output.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 10: Pause for reflection</h2>
+<p>Congratulations: this was a long and arduous journey ... but
+you made it!</p>
+
+<p>It's appropriate to pause at this point and enjoy the satisfaction
+of reflection on what you have accomplished: Specifically, you now
+have a very simple operating system that allows you to run two distinct
+copies of the same user level program.  The two programs are protected
+from one another because neither one has access to the memory (either
+code or data) that the other is using.</p>
+
+<p>As you continue to reflect on this, however, you might start to
+wonder whether it's a good idea to include all of the functionality
+for video RAM output as part of a kernel ... continuing in this way
+will ultimately lead us to a so-called <em>monolithic kernel</em>
+that has an unnecessarily large trusted computing base (TCB) because
+it includes a lot of code that doesn't strictly need to be executed
+in kernel mode.  We don't have a mechanism for IPC (Inter Process
+Communication) between processes here, but perhaps you'll start to
+ponder how such a feature might be used to move the functionality
+for output on screen to a new, user-level process that has exclusive
+access to the video RAM at physical address <tt>0xb8000</tt> thanks
+to a special kernel mapping ... but all this sounds like an exercise
+for another time, don't you think?</p>
+
+<br/>
+<!-- Main material ends here-->
+</TD>
+</TR>
+</TABLE>
+
+<hr>
+
+</BODY>
+</HTML>

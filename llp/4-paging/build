@@ -1,0 +1,8 @@
+FOLDER=`pwd`
+(cd ../.. ; \
+  tar cvzf $FOLDER/winio.tar.gz \
+     winio/{Makefile,winio.h,winio.c,serial.s,ia32-getc.c} ; \
+  tar cvzf $FOLDER/paging.tar.gz \
+     paging/{Makefile,grub.cfg} \
+     paging/kernel/{context.h,hardware.h,init.S,kernel.c,kernel.ld,Makefile,memory.h,paging.c,paging.h,twiddletests.c} \
+     paging/user/{Makefile,user.c,user.ld,userlib.s} )

@@ -1,0 +1,11 @@
+# Use the command:   source cleanall
+# to remove all of the generated tar.gz lab files
+
+rm 1-vram/*.tar.gz
+rm 2-baremetal/*.tar.gz
+rm 3-switching/*.tar.gz
+rm 4-paging/*.tar.gz
+rm 5-processes/*.tar.gz
+rm 6-pork/*.tar.gz
+rm 7-caps/*.tar.gz
+

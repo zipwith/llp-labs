@@ -1,0 +1,508 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<TITLE>A simple Video RAM simulation</TITLE>
+<style type="text/css">a {text-decoration: none}</style>
+</HEAD>
+<body text="#000000" bgcolor="#ffffff" link="#964800" vlink="#804000">
+
+<TABLE CELLSPACING=0 BORDER=0 CELLPADDING=0 align="center">
+<TR>
+<TD align="left" valign="top">
+  <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
+  This page last updated: December 2018.
+</TD>
+<TD align="right" valign="top">
+  <FONT SIZE=6>A Video RAM simulation</FONT><br/>
+  Fall 2018
+</TD>
+</TR>
+<TR>
+<TD colspan="2">
+<!-- Main material goes here -->
+<hr>
+
+<p>This page describes a short series of IA32 assembly language
+exercises that were inspired by techniques for generating textual
+output on a basic display screen in computer systems with video
+RAM buffers.  For testing purposes, we simulate the effect
+of running these programs by generating images in a regular
+terminal window, using ANSI escape sequences to set foreground
+and background color attributes as appropriate.  Nevertheless,
+code like this could also be very useful in a real, bare metal
+system.
+</p>
+
+<p>These instructions assume that you are using a standard x86
+Linux machine with standard tools for compiling and running C
+programs.  No special hardware is required: a simple terminal
+window should be sufficient for running these programs, so long as
+it has (at least) 25 rows and 80 columns.</p>
+
+<p>We suggest that you develop your solutions to these and future
+exercises in a folder called <tt>~/Documents/llp</tt>, and we will
+assume that you have used that path in what follows, and in other
+documents.  But of course you are welcome to use a different
+directory, with corresponding adjustments to these instructions,
+if that suits your needs better.</p>
+
+<p>A set of files that provide a starting point for these exercises
+can be downloaded as <a href="vram.tar.gz">vram.tar.gz</a>.  We
+suggest that you download this file and then unpack its contents
+using the following sequence of commands (of course, you will need
+to make adjustments if you are using a different folder (in Line 1)
+or if your downloads are stored in a different location (Line 2)):
+<pre>
+  cd ~/Documents/llp
+  tar xvzf ~/Downloads/vram.tar.gz.
+  cd vram
+</pre>
+The last command here moves you in to a newly created
+<tt>vram</tt> folder, which means that you are ready to begin.
+(You are welcome to take a look at the files in your new
+<tt>vram</tt> folder right now of course, but further details will
+be presented as they are needed in the following.)</p>
+
+<h2>Background</h2>
+<p>The video systems on early PCs supported a simple text
+display mode with 80 columns and 25 lines.  Programs on these
+machines generated output to be displayed on the screen by
+writing an appropriate sequence of values in to a special block
+of memory known as <em>video RAM</em>.  As such, video RAM is
+a simple example of <em>memory-mapped I/O</em>. (In this case,
+of course, there is mostly just O(output) and not much I(input)!)
+In fact, although the machines we typically use today have much
+more powerful graphics systems, many of them still support a
+very basic graphics mode using video RAM; on some machines, you
+might even catch a very brief glimpse of this if you watch your
+computer boot, or if you interrupt that boot process to access
+and potentially change configuration settings in its BIOS.</p>
+
+<p>In practical terms, the video RAM on these systems was
+organized as a contiguous block of memory containing two bytes
+for each character on the screen.  The first of those two byte
+holds an eight bit "character code" using an extended version
+of ASCII codes.  For example:</p>
+<p align="center">
+<table border=1>
+<tr><th>Code</th><td>...</td><td> 32</td><td>...</td><td> 48</td><td> 49</td><td>...</td><td> 65</td><td> 66</td><td>...</td><td> 97</td><td> 98</td><td>...</td></tr>
+<tr><th>Character</th><td>...</td><td>' '</td><td>...</td><td>'0'</td><td>'1'</td><td>...</td><td>'A'</td><td>'B'</td><td>...</td><td>'a'</td><td>'b'</td><td>...</td></tr>
+</table>
+<!--
+<table border=1>
+<tr><th>Code</th><th>Character           </th></tr>
+<tr><td>...</td> <td>    ...             </td></tr>
+<tr><td>32</td>  <td><tt>' '</tt> (space)</td></tr>
+<tr><td>...</td> <td>    ...             </td></tr>
+<tr><td>48</td>  <td><tt>'0'</tt>        </td></tr>
+<tr><td>49</td>  <td><tt>'1'</tt>        </td></tr>
+<tr><td>...</td> <td>    ...             </td></tr>
+<tr><td>65</td>  <td><tt>'A'</tt>        </td></tr>
+<tr><td>66</td>  <td><tt>'B'</tt>        </td></tr>
+<tr><td>...</td> <td>    ...             </td></tr>
+<tr><td>97</td>  <td><tt>'a'</tt>        </td></tr>
+<tr><td>98</td>  <td><tt>'b'</tt>        </td></tr>
+<tr><td>...</td> <td>    ...             </td></tr>
+</table>
+-->
+</p>
+<p>
+The second byte for each character specifies a video <em>attribute</em>;
+this determines which foreground and background colors should be used to
+display the character on screen. The attribute byte works as a bitmap:
+</p>
+<p align="center">
+<table border=0>
+  <tr><td>
+  <table border=1>
+    <tr>
+      <td align=center width=20>Bl</td>
+      <td align=center width=20>r </td>
+      <td align=center width=20>g </td>
+      <td align=center width=20>b </td>
+      <td align=center width=20>In</td>
+      <td align=center width=20>R </td>
+      <td align=center width=20>G </td>
+      <td align=center width=20>B </td>
+    </tr>
+  </table></td></tr>
+  <tr><td><table border=0>
+    <tr><td>where</td><td>Bl     </td><td>=</td><td>blinking text</td></tr>
+    <tr><td>     </td><td>r, g, b</td><td>=</td><td>background color (red, green, blue)</td></tr>
+    <tr><td>     </td><td>R, G, B</td><td>=</td><td>foreground color (red, green, blue)</td></tr>
+    <tr><td>     </td><td>In     </td><td>=</td><td>foreground intensity</td></tr>
+  </table></td></tr>
+</table>
+</p>
+<p>The following table, for example, documents the foreground
+colors that can be achieved by using different combinations of
+the least four bits in each attribute byte:</p>
+<p align="center">
+<table border=1>
+  <tr>
+    <td>
+      <table border=0>
+        <tr><td>0</td><td>0</td><td>0</td><td>0</td><td>Black</td></tr>
+        <tr><td>0</td><td>0</td><td>0</td><td>1</td><td>Blue</td></tr>
+        <tr><td>0</td><td>0</td><td>1</td><td>0</td><td>Green</td></tr>
+        <tr><td>0</td><td>0</td><td>1</td><td>1</td><td>Cyan</td></tr>
+        <tr><td>0</td><td>1</td><td>0</td><td>0</td><td>Red</td></tr>
+        <tr><td>0</td><td>1</td><td>0</td><td>1</td><td>Magenta</td></tr>
+        <tr><td>0</td><td>1</td><td>1</td><td>0</td><td>Brown</td></tr>
+        <tr><td>0</td><td>1</td><td>1</td><td>1</td><td width=200>White</td></tr>
+      </table>
+    </td>
+    <td>
+      <table border=0>
+        <tr><td>1</td><td>0</td><td>0</td><td>0</td><td>Gray</td></tr>
+        <tr><td>1</td><td>0</td><td>0</td><td>1</td><td>Light Blue</td></tr>
+        <tr><td>1</td><td>0</td><td>1</td><td>0</td><td>Light Green</td></tr>
+        <tr><td>1</td><td>0</td><td>1</td><td>1</td><td>Light Cyan</td></tr>
+        <tr><td>1</td><td>1</td><td>0</td><td>0</td><td>Light Red</td></tr>
+        <tr><td>1</td><td>1</td><td>0</td><td>1</td><td>Light Magenta</td></tr>
+        <tr><td>1</td><td>1</td><td>1</td><td>0</td><td>Yellow</td></tr>
+        <tr><td>1</td><td>1</td><td>1</td><td>1</td><td width=200>White (High Intensity)</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</p>
+<p>The complete video RAM area of memory can be treated as an
+array with 25 rows, each of which has 80 columns, each with
+two characters.  A suitable (external) declaration for this
+array in C might look something like the following:
+<pre>
+    extern char video[25][80][2];
+</pre>
+In principle, this is enough to start writing programs that
+use video RAM; we can set the character code for any given
+pair of row (<tt>r</tt>) and column (<tt>c</tt>) coordinates
+by writing to <tt>video[r][c][0]</tt>, and the corresponding
+video attribute by writing to <tt>video[r][c][0]</tt>, as in
+the following example:
+<pre>
+    video[2][38][0] = 'h';  video[2][40][0] = 'i';  video[2][42][0] = '!';
+    video[2][38][1] = 0x51; video[2][40][1] = 0x43; video[2][42][1] = 0x35;
+</pre>
+Nevertheless, in many practical applications, it would be
+preferable if we could treat video RAM as a simple character
+device that receives and displays an arbitrary sequence of
+characters, scrolling as necessary to ensure that the most
+recent output is always visible.</p>
+
+<h2>A Library for Video RAM Output</h2>
+<p>In the rest of this document, we will focus on the
+implementation of a small library that lets programmers treat
+video RAM as a conventional, character-oriented output stream.
+Our specific library provides four main features: 
+<dl>
+<dt><tt>cls()</tt></dt>
+<dd>
+Purpose: Clear the screen, setting every character code to <tt>' '</tt> and
+reseting all of the video attributes to some default value.  For the
+purposes of our library, we'll use attribute <tt>0x2e</tt>, which gives
+a bright foreground color, and a background color that is as close to
+PSU Green as our limited palette will allow!
+</dd>
+
+<dt><tt>outc(c)</tt></dt>
+<dd>
+Purpose: Output a single character on the screen; the implementation of this
+function will need to maintain a current cursor position, recording
+the row and column numbers in which the next output character will
+be placed.  When the caller asks to output a newline, we can move
+the cursor immediately to the start of the text line.  When the
+cursor reaches the end of the screen, we will need to scroll the
+display on screen.  In essence, this last step requires us to overwrite
+the first line on the screen with the text from the second line, then
+overwrite the second line with the text from the third, and so on,
+until we reach the end of the screen and overwrite the last line with
+a blank (empty) line.
+</dd>
+
+<dt><tt>setAttr(a)</tt></dt>
+<dd>
+Purpose: Set the video attribute that will be used for all characters
+that are displayed using calls to <tt>outc()</tt> (until a different
+attribute is specified by a subsequent <tt>setAttr()</tt> call, of
+course).
+</dd>
+
+<dt><tt>outhex(n)</tt></dt>
+<dd>
+Purpose: Output an eight character string with the hexadecimal
+representation for the unsigned argument <tt>n</tt>.
+For example, the number <tt>10</tt> would be displayed as
+<tt>0000000A</tt>, while the number <tt>1024</tt> would be
+displayed as <tt>00000400</tt>.
+</dd>
+</dl>
+</p>
+<p>The <tt>video.h</tt> file that is included in the <tt>vram</tt>
+folder is a C header file that provides declarations for these
+functions.  This file can be included in any program that makes use
+of the library, such as the following example (<tt>video1.c</tt> in
+the <tt>vram</tt> directory):
+<pre>
+    #include "video.h"
+    
+    int main(int argc, char** argv) {
+        int i, j;
+        cls();
+        video[2][38][0] = 'h';  video[2][40][0] = 'i';  video[2][42][0] = '!';
+        video[2][38][1] = 0x51; video[2][40][1] = 0x43; video[2][42][1] = 0x35;
+        display();
+        return 0;
+    }
+</pre>
+This code uses the <tt>cls()</tt> call to clear the screen and generates
+a very brief greeting at specific screen coordinates using direct array
+writes, as described previously.  The <tt>display()</tt> call at the end
+of the program is a reference to a function defined in <tt>videodisp.c</tt>,
+which uses ANSI escape code sequences to display an approximation of what
+the image in video RAM might look like on a conventional terminal (assuming
+that the terminal is at least 80 columns wide).  You are welcome to look
+at the code in <tt>videodisp.c</tt>, of course, but doing so should not be
+strictly necessary to complete these exercises.</p>
+
+<p>The <tt>vram</tt> folder
+also includes the beginnings of an assembly language implementation for
+the library in the file <tt>videoasm.s</tt> ... although, as you will soon
+see when you look at the files, all of the functions are implemented by
+simple stubs that do not actually do anything.  We can compile and link
+all of these pieces together using the following command line:
+<pre>
+    gcc -m32 -o video1 video1.c videodisp.c videoasm.s
+</pre>
+For convenience, you may also use the provided <tt>Makefile</tt>,
+in which case you can generate the <tt>video1</tt> executable by
+typing <tt>make video1</tt>.  Whichever option you choose, however,
+should produce something like the following output (click the image,
+if necessary, for a larger version):
+</p>
+<p align=center><a href="0.png"><img src="0.png" width=540></a></p>
+<p>By looking at details like the terminal window size that is displayed
+at the top of the image, we can see that the dark block shown here corresponds
+to an 80x25 display with the three expected characters displayed close to the
+center of the third row.</p>
+
+<h2>Exercise 1: Clearing the Screen</h2>
+<p>Given our earlier description of the <tt>cls()</tt> function, you
+might have been expecting to see a green background in the previous
+image.  The black background appears instead because the initial value
+of the attribute bytes in our <tt>video</tt> buffer is zero (which
+corresponds to black text on a black background) and because the
+implementation of <tt>cls()</tt> is just a stub that doesn't actually
+modify the contents of video RAM; that is, it doesn't do anything to
+initialize the video RAM to set a green background for each character.</p>
+
+<p>Your first task is to provide a working implementation for <tt>cls()</tt>
+so that the output produced when you run <tt>video1</tt> looks something like
+the following:</p>
+<p align=center><a href="1.png"><img src="1.png" width=540></a></p>
+<p>Given the earlier C declaration of <tt>video</tt> as a
+multi-dimensional array of characters, you might be tempted to
+implement this function using a pair of nested loops, with one
+loop using indices from 0 to 24 to scan different rows, and
+another using indices from 0 to 79 to scan different columns,
+and an inner loop body that initializes each character and
+attribute byte to an appropriate value.  A solution that works
+that way is acceptable here, but there are simpler ways to code
+this up.  In addition, from a performance perspective, you might
+consider methods that allow you to write more than one byte value
+at a time, reducing the total number of writes that are needed to
+complete the task.  Again, however, handling this detail is not a
+strict requirement for completing this exercise!</p>
+
+<h2>Exercise 2: Scrolling</h2>
+<p>As a first step to implementing the <tt>outc()</tt> function,
+your next task will be to write some code that will scroll the
+screen up by one line.  For now, you can put this code in the
+stub for <tt>outc()</tt> in <tt>videoasm.s</tt> so that you can
+test your implementation by using a short sequence of <tt>outc()</tt>
+calls.  For example, you might use the following program (included
+as <tt>video2.c</tt> in the <tt>vram</tt> folder) as a test case:
+<pre>
+    #include "video.h"
+  
+    int main(int argc, char** argv) {
+        int i, j;
+        cls();
+        video[2][38][0] = 'h';  video[2][40][0] = 'i';  video[2][42][0] = '!';
+        video[2][38][1] = 0x51; video[2][40][1] = 0x43; video[2][42][1] = 0x35;
+  
+        setAttr(7);
+        outc('h');
+        outc('i');
+  
+        display();
+        return 0;
+    }
+</pre>
+If your <tt>outc()</tt> implementation handles scrolling correctly
+but otherwise ignores the argument provided, then the output that you
+get when you run <tt>video2</tt> should look something like this:</p>
+<p align=center><a href="2.png"><img src="2.png" width=540></a></p>
+<p>Note, in particular, that the three character greeting that was
+originally displayed on the third line has now been shuffled up to
+the top line as a result of the two calls to <tt>outc()</tt>.  Yay
+for scrolling!</p>
+
+<h2>Exercise 3: Character Output</h2>
+<p>Once you have scrolling working, you'll want to complete the
+implementation of <tt>outc()</tt> by adding support for character
+output.  This will require you to use and modify the values that
+are stored in the <tt>row</tt> and <tt>col</tt> variables that
+are declared at the start of <tt>videoasm.s</tt> and used to track
+the "current cursor position", as well as the "current attribute"
+setting from the <tt>attr</tt> variable.  You'll also need to access
+the argument to <tt>outc()</tt> that specifies which character should
+be output (it will be on the stack, and can be read using indexed
+addressing with a suitable offset from <tt>%ebp</tt>).  Note that
+you should make a special case when the newline character is
+passed as input to <tt>outc()</tt>, moving the cursor immediately
+to the next line instead of advancing to the next column.  Finally,
+make sure that you don't advance either the <tt>row</tt> or
+<tt>col</tt> variables beyond their allowed limits of 25 and 80,
+respectively.  If the column number passes 79, you can just move
+to the next row, of course.  If you reach the last row of the
+display, however, then you'll want to scroll the display instead
+of further incrementing the <tt>row</tt> number.  The logic that
+you need here is not really as complicated as the preceding
+description might make it sound, but don't be shy about sketching
+it out as a small flowchart if that helps you to get a clearer
+picture of what is required!</p>
+
+<p>When you've finished this, you should get something like the
+following as output when you run <tt>video2</tt>:</p>
+<p align=center><a href="3.png"><img src="3.png" width=540></a></p>
+<p>This output isn't quite as satisfying as might be hoped: the
+two <tt>outc()</tt> calls are responsible for the two black 
+boxes seen at the top left of the output display.  But we can't
+actually see the characters here because the default video
+attribute is black text on a black background!  We'll fix that
+in the next step ...</p>
+
+<h2>Exercise 4: Setting the Current Attribute</h2>
+<p>Your next task is to fill in an implementation for the
+<tt>setAttr()</tt> function; you should find that this is
+a very simple task&mdash;as long as you've properly understood
+how arguments are passed in to functions&mdash;so don't be
+alarmed if you manage to implement this with just a couple of
+lines of code!  Once you've handled this, the <tt>setAttr(7)</tt>
+call in the code for <tt>video2</tt> will work some minor
+magic in specifying white text on a black background&mdash;much
+easier to read!&mdash;and you should be rewarded with an
+output that looks something like the following:</p>
+<p align=center><a href="4.png"><img src="4.png" width=540></a></p>
+
+<h2>Exercise 5: Hexadecimal Output</h2>
+<p>For our final exercise, we'll turn to the implementation of the
+<tt>outhex()</tt> function.  Conceptually, this is a fairly simple
+function: we're not going to worry about sign bits or leading zeros&mdash;
+every number will be output with exactly 8 digits&mdash;and we're
+not going to try converting to decimal, or doing anything else that
+might require using a buffer of some kind.  Nevertheless, this will
+still be a good exercise to test your comfort level with classic
+"bit twiddling" operations like bitwise rotate, and, etc...</p>
+
+<p>For testing purposes, you can use the following program (which,
+once again, is already provided for you, this time in <tt>video3.c</tt>):
+<pre>
+    #include "video.h"
+    
+    int main(int argc, char** argv) {
+        int i, j;
+        cls();
+        unsigned val = 1;
+        for (i=0; i<26; i++) {
+            setAttr((i&amp;7)&lt;&lt;4);
+            for (j=0; j&lt;i; j++) {
+                outc(' ');
+            }
+            outc(65+i);
+            outc(97+i);
+            outc(' ');
+            outhex(val);
+            val += val;
+            outc('\n');
+        }
+        display();
+        return 0;
+    }
+</pre>
+If you've completed all of the previous steps, but have yet to modify
+the stub for <tt>outhex()</tt>, then you should see output like the
+following when you run this program:</p>
+<p align=center><a href="5.png"><img src="5.png" width=540></a></p>
+<p>[This example also provides some further opportunities for testing
+your ealier implementation of scrolling and <tt>outc()</tt>; note how
+the lines for <tt>Aa</tt> and <tt>Bb</tt> are missing in the display
+above, having been scrolled off the top of the display by the remaining
+24 letters of the alphabet and the one extra blank line at the end.]</p>
+<p>Once your implementation of <tt>outhex()</tt> is complete, you should
+see output that looks something like the following instead:</p>
+<p align=center><a href="6.png"><img src="6.png" width=540></a></p>
+<p>Notice that the numbers seen here correspond to powers of two in
+hexadecimal notation: this reflects the fact that the program outputs
+the value in the variable <tt>val</tt> at each step, having initialized
+it to 1 at the start of the program, and then doubling it with
+each subsequent loop iteration.</p>
+
+<p>It's reasonable to assume (I hope!) that your implementation
+of <tt>outhex()</tt> will take the form of a loop whose body is
+executed eight times, with each iteration involving a separate
+call to <tt>outc()</tt>.  As a result, you might start to run in to
+problems here if you haven't taken the steps that are expected and,
+in general, needed to save and restore specific registers in
+<tt>outc()</tt>.  In particular, following the System V ABI conventions,
+if your implementation of <tt>outc()</tt>&mdash;or any one of the other
+functions for that matter&mdash;uses the registers
+<tt>%ebx</tt>, <tt>%esi</tt>, or <tt>%edi</tt>, then you must take
+appropriate steps to make sure those registers contain the same
+value at the end of the function as they did on entry.  This is
+typically accomplished by inserting an appropriate <tt>pushl</tt>
+instruction at the start of the function and a matching <tt>popl</tt>
+at the end.  Similarly, if your code for <tt>outhex()</tt> is using
+any of the <tt>%eax</tt>, <tt>%ecx</tt>, or <tt>%edx</tt> registers
+at the point where it calls <tt>outc()</tt>, then you should take
+appropriate steps to ensure that the values in those registers cannot
+be "clobbered" (i.e., overwritten) while the <tt>outc()</tt> code
+is running.</p>
+
+<h2>Other Ideas</h2>
+<p>Congratulations, you've reached the end of this set of exercises!
+But if you've enjoyed working on this, then there are still plenty
+of opportunities to continue by adding new functions or features to
+the library.  For example, you could add:
+<ul>
+<li>A function for setting the cursor position to specific coordinates
+    (be sure to check that the coordinate values are in range!)
+<li>A function for outputing numbers in decimal notation.
+<li>A mechanism that allows you to specify a "window" within the 80x25
+    text display where new output will be displayed and scrolled, without
+    changing the text that appears in other parts of the display.
+<li>A function for drawing a rectangular block of characters on the
+    screen with a given height, width, and starting coordinates.
+<li>...
+<li>Come to think of it, we could even try running a program like this
+    in a bare metal environment with real video RAM!  In theory, that
+    would allow us not only to see
+    the final state, but also to watch intermediate steps along
+    the way.  (Just don't expect to see much of that intermediate work
+    in detail as it flashes by unless you've taken some steps to slow
+    the code down in significant ways, such as by inserting explicit
+    delays, for example.)
+</ul>
+</p>
+
+<br/>
+<!-- Main material ends here-->
+</TD>
+</TR>
+</TABLE>
+
+<hr>
+
+</BODY>
+</HTML>

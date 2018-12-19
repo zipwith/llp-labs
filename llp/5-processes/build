@@ -1,0 +1,4 @@
+FOLDER=`pwd`
+(cd ../.. ; \
+  tar cvzf $FOLDER/userio.tar.gz \
+    userio/{Makefile,printf.c,puts.c,syscalls.s,userio.h} )

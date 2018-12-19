@@ -1,0 +1,12 @@
+FOLDER=`pwd`
+(cd ../.. ; \
+  tar cvzf $FOLDER/prot.tar.gz \
+    Makefile \
+    example-gdt/{Makefile,grub.cfg} \
+    example-gdt/kernel/{Makefile,init.s,kernel.c,kernel.ld} \
+    example-idt/{Makefile,grub.cfg} \
+    example-idt/kernel/{Makefile,context.h,init.s,kernel.c,kernel.ld} \
+    example-idt/user/{Makefile,user.c,user.ld,userlib.s} \
+    switching/{Makefile,grub.cfg} \
+    switching/kernel/{Makefile,context.h,hardware.h,init.s,initpic.s,kernel.c,kernel.ld} \
+    switching/user/{Makefile,user.c,user.ld,userlib.s} )

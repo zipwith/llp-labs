@@ -1,0 +1,8 @@
+FOLDER=`pwd`
+(cd ../.. ; \
+  tar cvzf $FOLDER/caps.tar.gz \
+    caps/{Makefile,grub.cfg} \
+    caps/kernel/{Makefile,alloc.c,alloc.h,caps.c,caps.h,context.h,hardware.h,init.S,kernel.c,kernel.ld,memory.h,paging.c,paging.h,proc.c,proc.h,syscalls.c,util.h} \
+    caps/capio/{Makefile,capio.h,printf.c,puts.c,syscalls.s} \
+    caps/user/{Makefile,syscalls.h,user.c,user.ld,userlib.s} )
+

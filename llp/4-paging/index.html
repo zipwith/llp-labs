@@ -1,0 +1,515 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<TITLE>Paging, Part 1</TITLE>
+<style type="text/css">a {text-decoration: none}</style>
+</HEAD>
+<body text="#000000" bgcolor="#ffffff" link="#964800" vlink="#804000">
+
+<TABLE CELLSPACING=0 BORDER=0 CELLPADDING=0 align="center">
+<TR>
+<TD align="left" valign="top">
+  <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
+  This page last updated: December 2018.
+</TD>
+<TD align="right" valign="top">
+  <FONT SIZE=6>Paging, Part 1: Managing the MMU</FONT><br/>
+  Fall 2018
+</TD>
+</TR>
+<TR>
+<TD colspan="2">
+<!-- Main material goes here -->
+<hr>
+<p>
+The code for this set of exercises is a modified version of the
+<tt>example-idt</tt> codebase that you worked on in the context
+switching lab; the modifications in this file include some changes
+to initialize the paging mechanisms (as described in the Week
+4 lecture) and the addition of some <tt>TODO</tt> items to guide you
+through these exercises.  You can download a copy of this code from
+<a href="paging.tar.gz"><tt>paging.tar.gz</tt></a>, and should unpack
+it (using <tt>tar xvzf paging.tar.gz</tt>) in your main <tt>llp</tt>
+folder (i.e, the one with subdirectories for <tt>simpleio</tt>,
+<tt>mimg</tt>, <tt>example-idt</tt>, <tt>switching</tt>, etc.).
+This will create a new <tt>paging</tt> folder where you'll do your
+work in this lab, with subfolders for <tt>kernel</tt> and <tt>user</tt>
+code, following the pattern you've seen previously.</p>
+
+<p>Because there are some fairly complicated steps in this work,
+we'll be splitting these exercises over two weeks:
+</p>
+<ul>
+<li><p>
+Week 1: Implement basic support for paging, including functions to
+support allocation and initialization of paging structures (page
+directories and page tables).</p></li>
+<li><p>
+Week 2: Implement context switching between multiple user programs,
+each running in a distinct virtual address space.</p></li>
+</ul>
+<p>
+All of the work for this first week will be done on the files in
+the <tt>kernel</tt> subdirectory, but you may wish to keep one
+window open in the main <tt>paging</tt> directory (so that you can
+<tt>"make run"</tt> for the purposes of testing), and another in
+<tt>paging/kernel</tt> so that you are in the most convenient place
+to edit the files.
+</p><p>
+The provided code should compile and run as supplied, but it is
+incomplete and has multiple sections with <tt>TODO</tt> comments
+describing code that you will need to write.  This document is designed
+to be read in conjunction with those source files and annotations.
+You are strongly suggested to follow the specific sequence of steps
+described below to complete these tasks (augmented with your own
+tests along the way, as you see fit), but you may choose to proceed
+in a different way if you prefer.  
+</p>
+<p>
+As you work on these exercises, you'll probably want to remind
+yourself about the bit layout patterns for page directory and
+page table entries.  Here is a snapshot of the table in the
+Intel documentation that might be useful for that purpose (clickable
+for a full size version):</p>
+<p align=center><a href="pdepte.png"><img src="pdepte.png" width=540></a></p>
+<p>[Aside: This diagram includes some details for an optional feature
+of current Intel architectures called PSE-36 that allows programmers to
+specify physical addresses with up to 40 bit addresses for 4MB super pages.
+This feature uses bits 12-20 in the second row of the diagram above.  We
+are not using that feature here, however, so we will always set those bits
+to zero.]
+</p>
+<p>Ok, let's get started!</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 1: Review</h2><p>
+Review the supplied code, particularly the assembly language sequence
+at the start of <tt>kernel/init.S</tt> that enables the IA32's paging mechanism.
+Much of this should look familiar from the code that we have discussed
+in the Week 4 lecture.  The code that creates the initial page directory
+is particularly relevant (i.e., worth your time and careful study)
+because you'll be doing something very similar in C later on ...
+</p><p>
+[Aside: You might be wondering if there is any significance to the
+fact that the file name <tt>kernel/init.S</tt> ends with a capital
+<tt>S</tt>, unlike the assembly files that we've seen previously with
+a lower case <tt>s</tt> suffix.  This is a way of specifying that the
+assembly code in that file should be run through the C preprocessor
+before it is fed to the assembler.  In particular, this allows use
+to use directives like <tt>#include "memory.h"</tt> or <tt>#define
+PAGESIZE 12</tt> in our assembly code file, so that we can use the
+same symbolic constants as in the accompanying C code.]
+</p><p>
+Run the program.  How can you tell that paging has been enabled???
+(Hint: the clue you're looking for is just one character ...)
+</p>
+<p>
+You'll notice that the program also displays a textual description
+of the initial page directory that is used by the code in
+<tt>kernel/init.S</tt> when the memory management/paging support is
+first turned on.  The output looks like this:
+<pre>
+  initial page directory is at 0xc0102000
+    Page directory at c0102000
+      0: [0-3fffff] =&gt; [0-3fffff], superpage
+      1: [400000-7fffff] =&gt; [400000-7fffff], superpage
+      2: [800000-bfffff] =&gt; [800000-bfffff], superpage
+      3: [c00000-ffffff] =&gt; [c00000-ffffff], superpage
+      4: [1000000-13fffff] =&gt; [1000000-13fffff], superpage
+      5: [1400000-17fffff] =&gt; [1400000-17fffff], superpage
+      6: [1800000-1bfffff] =&gt; [1800000-1bfffff], superpage
+      7: [1c00000-1ffffff] =&gt; [1c00000-1ffffff], superpage
+      300: [c0000000-c03fffff] =&gt; [0-3fffff], superpage
+      301: [c0400000-c07fffff] =&gt; [400000-7fffff], superpage
+      302: [c0800000-c0bfffff] =&gt; [800000-bfffff], superpage
+      303: [c0c00000-c0ffffff] =&gt; [c00000-ffffff], superpage
+      304: [c1000000-c13fffff] =&gt; [1000000-13fffff], superpage
+      305: [c1400000-c17fffff] =&gt; [1400000-17fffff], superpage
+      306: [c1800000-c1bfffff] =&gt; [1800000-1bfffff], superpage
+      307: [c1c00000-c1ffffff] =&gt; [1c00000-1ffffff], superpage
+</pre>
+This output (produced by the <tt>showPdir()</tt> function that is
+defined in <tt>kernel/paging.c</tt>) shows that the initial page
+directory includes mappings for a total of sixteen superpages:
+This includes:
+</p>
+<ul><li><p>The first 8 slots of the page directory (covering
+addresses <tt>0-0x1f_ffff</tt>, which corresponds to 32MB of
+physical memory, or 8 superpages, each 4MB in size).</p></li>
+<li><p>Another eight entries, starting at position
+<tt>0x300</tt> in the page directory, that maps
+the same 32MB range of physical memory addresses (shown by the
+ranges on the right of the <tt>=&gt;</tt> symbol) in to memory
+with the virtual addresses starting at <tt>0xc000_0000</tt>.
+Note that this is is just the <tt>KERNEL_SPACE</tt> start address that was
+describe in the Lecture.</p></li>
+</ul>
+<p>In fact, you should recognize the
+above as a textual description of the initial page directory
+described in the lecture that maps the same region of physical
+memory in to virtual memory at two different addresses: a 1:1
+mapping allows us to access these memory locations using low
+virtual addresses that correspond exactly to the underlying
+physical addresses, while the second group of mappings provide
+access to the same memory using addresses in the kernel space
+region.  Take time to make sure you understand what the text
+above is describing: we're going to be creating and manipulating
+new page directory structures as we proceed, so it's important
+to have a clear idea of what they describe.
+</p>
+<p>
+Ok, it's time to move on.  But a quick heads up before we go further:
+you're going to be doing quite a lot of work to get
+this code up and running properly.  It won't be easy, and you'll deserve
+some credit.  So open up <tt>kernel/kernel.c</tt> in your text editor
+and add your name at the top of the file!  This will almost certainly
+be this easiest of all the changes that you make to the code during
+this lab, but it's always nice to start with something simple :-)
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2><a name="Step2">Step 2: Bit twiddling</a></h2><p>
+It is fairly common for low-level code to use "bit twiddling", which
+involves maninpulating the bit-level representations of values using
+appropriate combinations of logical <tt>&amp;</tt> (and), <tt>|</tt>
+(or), <tt>^</tt> (xor) and <tt>~</tt> (not) operations as well as
+bit shift operations like <tt>&lt;&lt;</tt> (left shift) and
+<tt>&gt;&gt;</tt> (right shift).  For example: we can extract the
+least significant 4 bits of a value <tt>x</tt> using <tt>x &amp; 0xf</tt>;
+we can set bit 7 in <tt>x</tt> to one using <tt>x | (1&lt;&lt;7)</tt>;
+or reset it using <tt>x &amp; ~(1&lt;&lt;7)</tt>.  Pay careful attention
+to operator precedence in examples like this, and don't be shy about
+using parentheses where it is either necessary or just useful to clarify
+what is expected.  For example, if you want to test whether bit 3 in a
+value <tt>x</tt>, you can use <tt>(x&amp;0x8)!=0</tt>, but you should
+not omit the parentheses here because <tt>x&amp;0x8!=0</tt> is treated
+in the same way as <tt>x&amp;(0x8!=0)</tt>, which does not give the
+intended result!
+</p>
+<p>For some practice in bit twiddling, your next task is to implement
+the macros that
+are defined/commented out at the end of <tt>memory.h</tt>.  The descriptions
+for each macro/function given there should provide all the detail
+that you need, and none of them require anything very complicated.
+(Although a clear head will be useful!)  Test your implementations
+to make sure they work as you expect because you'll be relying on
+them soon.  (Hint: you can always <tt>#include "memory.h"</tt> in a regular
+C program that you can run directly from Linux to help with your
+tests; you might even find a suitable program lurking in the <tt>kernel</tt>
+folder ...)
+</p>
+<p>
+The following diagram may help to provide some graphical intuition for
+these bit-twiddling macros:</p>
+<p align=center><a href="pageboundaries.png"><img src="pageboundaries.png" width=800></a></p>
+<p>Specifically, the green region shown here represents a block of
+memory running from the address <tt>lo</tt> to the address <tt>hi</tt>,
+inclusive.  The vertical ticks indicate page boundaries, spaced at
+4K intervals.</p>
+<p>It will be important in the following that you understand
+what the numbers produced by these macros represent; they will
+be needed in later parts of this exercise!  With that in mind,
+note that the smallest set of (full) pages that includes all of
+the memory in the green region runs from <tt>pageStart(lo)</tt>
+to <tt>pageEnd(hi)</tt>.  Conversely, the largest set of full pages
+that is completely contained within the green region runs from
+<tt>firstPageAfter(lo)</tt> to <tt>endPageBefore(hi)</tt>.  In this
+particular example, <tt>firstPageAfter(lo)</tt> is also the same as
+<tt>pageNext(lo)</tt> and <tt>pageNext(pageStart(lo))</tt>.  Note,
+however, that <tt>pageStart(a)</tt> and <tt>firstPageAfter(a)</tt>
+are not always a whole page apart: if <tt>a</tt> is a multiple of 4K,
+then <tt>pageStart(a) = a = firstPageAfter(a)</tt>.  In case it is
+useful, here are some specific examples to make all this more
+concrete:
+<pre>
+  pageStart(0x12345678)      = 0x12345000
+  firstPageAfter(0x12345678) = 0x12346000
+  endPageBefore(0x12345678)  = 0x12344fff
+  pageEnd(0x12345678)        = 0x12345fff
+
+  pageStart(0xabcde000)      = 0xabcde000
+  firstPageAfter(0xabcde000) = 0xabcde000
+  endPageBefore(0xabcde000)  = 0xabcddfff
+  pageEnd(0xabcde000)        = 0xabcdefff
+</pre>
+</p>
+<p>Another way to think of these examples here is that every
+32 bit address, such as <tt>0x12345678</tt>  can be thought of
+as a combination of a 20 bit page number, such as <tt>0x12345</tt>
+and a 12 bit offset, such as <tt>0x678</tt>.  For example, if we
+want to find the start of a page from an arbitrary address, then
+we just need to replace the least significant 12 bits with zeros.
+Conversely, if we want to find the address of the last byte in a
+a page, then we need to replace the least significant 12 bits
+with ones, corresponding to <tt>0xfff</tt> in hex notation.</p>
+
+<p>Test your code for these macros carefully, and keep them in
+mind as you proceed with subsequent exercises in this lab and
+the next ... you can expect to find practical uses for all of
+these macros in what is still to come!</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 3: Scanning the memory map</h2><p>
+We're going to need to allocate some memory for page directory and
+page table structures.  Study the code that prints out a summary
+of the memory map at the start of the <tt>kernel()</tt> function in
+<tt>kernel/kernel.c</tt> and then start on the first few <tt>TODO</tt>
+items in the body of that function.  The algorithm described in those
+<tt>TODO</tt>s is not very sophisticated, but it will be sufficient
+for our purposes.</p> <p>To be specific, the high level goal here is
+to identify a block of pages that the kernel can then use as a pool
+to allocate new page table or page directory structures (or other
+blocks of memory, in units of 4KB that start on a 4KB boundary).
+Be careful to note that a memory map entry spanning from <tt>lo</tt>
+to <tt>hi</tt> must be trimmed to the potentially smaller region
+between <tt>firstPageAfter(lo)</tt> and <tt>endPageBefore(hi)</tt>
+before it can be used for allocating whole pages of memory.  (See the
+diagram in Step 2.)</p>
+
+<p><b>Debugging and development hints:</b></p>
+<p>Note that, for the purposes of testing, you
+can add a call to the <tt>halt()</tt> function at any point
+in your code; this will prevent execution from continuing to
+parts of the program that you are not ready to run just yet.
+(And if your program is "blowing up" for some unknown reason,
+you can experiment with adding calls to <tt>halt()</tt> to
+figure out how far it is getting before things go wrong!)
+Note also that you can insert <tt>printf()</tt> calls in your
+code to print out the values that it is working with; this
+can often be useful as a way to monitor your code and check
+that your algorithms are giving the results you expect.
+</p>
+<p>
+As always, it is also a good idea to break this task down in
+to steps.  For example, you might start by writing some code
+that just prints out the memory map, showing each region that
+we might consider in turn and confirming that we are
+at least working from the correct input.  In my testing, this
+produced output that looks like the following (yours, of course,
+may vary a little, and that doesn't necessarily mean that there
+is anything wrong):
+<pre>
+  Considering [0-9fbff]
+  Considering [9fc00-9ffff]
+  Considering [f0000-fffff]
+  Considering [100000-1fdffff]
+  Considering [1fe0000-1ffffff]
+  Considering [fffc0000-ffffffff]
+</pre>
+Because these regions of memory do not always match with page
+boundaries, we may have to do a little rounding (remember Step 2).
+To check I had the right approach there, I made further modifications
+to my code to calculate and display appropriate page boundaries
+within each page.  My output at this stage was as follows (and
+again, yours may well vary, depending on the input data and the
+details of how you wrote your formatting code):
+<pre>
+  Considering [0-9fbff], full pages [0-9efff]
+  Considering [9fc00-9ffff], full pages [a0000-9ffff]
+  Considering [f0000-fffff], full pages [f0000-fffff]
+  Considering [100000-1fdffff], full pages [100000-1fdffff]
+  Considering [1fe0000-1ffffff], full pages [1fe0000-1ffffff]
+  Considering [fffc0000-ffffffff], full pages [fffc0000-ffffffff]
+</pre>
+We can quickly confirm that all of the addresses in the "full pages"
+output here are valid page boundaries: the start addresses all end
+with 12 zero bits (three hexadecimal zeros) while the end addresses
+all end with 12 one bits (three hexadecimal <tt>f</tt> digits).
+Continue in a similar way, following the steps described in the
+<tt>TODO</tt> notes, to build your complete implementation, pausing
+as necessary for testing ...</p>
+
+<p><b>Final result:</b></p>
+<p>Once this portion of your code is complete you will have set the
+<tt>physStart</tt> and <tt>physEnd</tt> parameters to span a contiguous
+block of pages that (a) fits within the available physical memory,
+and (b) does not conflict with any region of memory in which other
+code has been loaded at boot time.</p>
+
+<p>The output that I got at this stage of the process was:
+</p><pre>
+   Will allocate from region [403000-1ffdfff], 29339648 bytes
+</pre><p>
+Yours should look similar, but don't worry if it's not exactly the
+same: differences in the way we've coded our solutions, or in the
+QEMU command line that we use, could cause small differences in the
+output that you see here.  Note that we've found a block of 29+MB here,
+which should keep us going for some time :-)</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 4: Allocation of pages</h2><p>
+Now that you've identified a region of available pages, it might be
+time to turn your attention to the <tt>allocPage()</tt> function that
+appears near the top of <tt>kernel/kernel.c</tt>.  The <tt>TODO</tt>
+text should give you enough information to complete this task,
+but make sure that you are using physical and virtual addresses
+properly, converting between them using the <tt>toPhys()</tt>
+and <tt>fromPhys()</tt> macros as necessary.  For example, if you
+wanted to write an <tt>unsigned</tt> zero value in to memory at the
+physical address in <tt>physStart</tt>, then you could do something
+like the following: 
+<pre>
+    // Find the virtual address for memory at physStart:
+    unsigned* page = fromPhys(unsigned*, physStart);
+    // And then write a zero at that location:
+    *page = 0;
+    // (We need to use virtual addresses for memory accesses
+    // because we are running with the MMU turned on ...)
+</pre>
+Note also that, if <tt>physStart</tt> holds the physical address of
+an unused page of memory on entry to <tt>allocPage()</tt>, then the
+next available page of memory will begin at the physical address
+given by <tt>nextPage(physStart)</tt>.
+</p>
+<p>For testing, you could always try inserting a few calls to
+<tt>allocPage()</tt> at an appropriate point in the <tt>kernel()</tt>
+function and then printing out the results.  You should see output
+addresses that are (1) within the selected region of memory, (2)
+properly aligned to page boundaries (i.e., the least significant
+twelve bits should be zero), and (3) increasing with each subsequent
+call to <tt>allocPage()</tt>.  
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 5: Adding kernel space mappings to new page directories</h2><p>
+Once you've completed <tt>allocPage()</tt>, you should be able to
+get past the lines of code in <tt>kernel/kernel.c</tt> that try to
+allocate and print out the new page directory, <tt>newpdir</tt>.
+But don't expect to see any entries in that new page directory just
+yet; we'll need to add these ourselves.  This would be a good time
+to turn your attention to the <tt>TODO</tt> item in the <tt>allocPdir()</tt>
+function in <tt>kernel/paging.c</tt>.  As hinted earlier, the C code that
+you'll need to write here has some strong similarities to (some
+parts of) the assembly code at the start of <tt>kernel/init.S</tt> ...
+</p><p>
+Once this is done, you should get some output that looks something
+like the following:
+</p><pre>
+  Page directory at c0406000
+    300: [c0000000-c03fffff] =&gt; [0-3fffff], superpage
+    301: [c0400000-c07fffff] =&gt; [400000-7fffff], superpage
+    302: [c0800000-c0bfffff] =&gt; [800000-bfffff], superpage
+    303: [c0c00000-c0ffffff] =&gt; [c00000-ffffff], superpage
+    304: [c1000000-c13fffff] =&gt; [1000000-13fffff], superpage
+    305: [c1400000-c17fffff] =&gt; [1400000-17fffff], superpage
+    306: [c1800000-c1bfffff] =&gt; [1800000-1bfffff], superpage
+    307: [c1c00000-c1ffffff] =&gt; [1c00000-1ffffff], superpage
+</pre>
+<p>Of course, this looks a lot like the initial page directory
+shown previously, albeit without the mappings at low addresses.
+Don't worry if your output looks ever so slightly different: this
+might just be the result of minor differences in the way we've
+written our respective implementations.  That said, <em>it is
+important that this new page directory does not include any
+mappings for memory at addresses below <tt>c0000000</tt></em>:
+this is necessary to avoid conflicts with any future user space
+mappings that we might want to make.  
+</p>
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 6: Are you feeling lucky?</h2>
+<p>Head back in to <tt>kernel/kernel.c</tt>, and
+enable the code that will switch to your newly created page directory.
+Unfortunately, even if you've done everything correctly so far,
+you'll find that things don't work quite as we might hope :-(  But
+all is not lost.  To help figure out what is causing the problem,
+try inserting a call to <tt>halt()</tt> immediately after the
+<tt>setPdir()</tt> call and then use QEMU's monitor to check on the
+status of the CPU (<tt>"info cpus"</tt>, for example).  Then try moving
+the <tt>halt</tt> after the <tt>printf()</tt> call and try again.
+What does this tell us???</p>
+
+<p>We're obviously running in to a problem here ... but what might
+that be???  Clearly it's something that happens in between those two
+points where you inserted calls to <tt>halt</tt>.  But the only thing
+there is a straightforward <tt>printf()</tt> call, and we know that
+worked just fine previously ...</p>
+
+<p>Think carefully about the purpose of <tt>printf</tt> and how it
+communicates information to the user of a computer system.  In general
+terms, what memory locations would you expect it to be accessing???
+And what physical addresses are those locations mapped to by the new
+page directory???</p>
+
+<p>If you're still puzzled, one way to get a little extra insight
+into what is happening is to find the line in <tt>kernel/init.S</tt>
+that defines <tt>handler num=14,...</tt> and then change the associated
+<tt>func</tt> value from <tt>nohandler</tt> to <tt>pfhandler</tt>.
+And if that still leaves you mistified, don't forget that you can
+always ask us for a little extra help!  [Aside: If you do edit the
+code to use <tt>pfhandler</tt>, you might want to ask yourself:
+Why does the resulting output show a <tt>T</tt> character immediately
+before the word <tt>Page</tt>???]</p>
+
+<p>Once you've figured out what's going on, be sure that
+you don't say it out loud: you don't want to spoil the opportunity
+for the folks around you to figure this out on their own, no matter
+how strongly they might claim to disagree with that statement! :-)</p>
+
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 7: Mapping single pages</h2>
+<p>Although we've used 4MB super page mappings for the kernel space
+region of our page directories, we'll restrict ourselves to using 4KB
+mappings within the user space region.  In particular, this means that
+we'll need to start using some page table structures in addition to
+the top level page directory.</p>
+
+<p>Head on back to <tt>kernel/paging.c</tt>, and work on the
+<tt>TODO</tt> items in the <tt>mapPage()</tt> function.  You might find
+it useful to look over the code in the <tt>showPdir()</tt> function
+at this point for an example of "walking" over page directory and page
+table structures.  (Hint: <tt>showPdir</tt> is just a few lines below
+<tt>mapPage</tt>.)  The code that you need here isn't particularly
+difficult, but you will need to think through the individual steps
+very carefully.  For example, you'll need to start by identifying an
+appropriate page directory slot, then looking for the page table in
+that slot (or allocating a new one if necessary), and then find the
+appropriate page table slot to fill.  Use your bit-twiddling skills
+(and/or some of the macros from <tt>kernel/memory.h</tt>) to help
+with this, and again remember that you can insert <tt>printf()</tt>
+calls along the way to check that your code is performing correctly.
+Last, but not least, remember to distinguish between physical and
+virtual addresses.  For example, the addresses that are stored in
+page directory entries, for example, are physical addresses, and
+you will need to calculate a corresponding virtual address before
+you can actually read the data they are pointing to.  Once again,
+the <tt>fromPhys()</tt> and <tt>toPhys()</tt> macros will be useful
+here ...</p>
+
+<p>You might also benefit from looking at the Intel diagram that
+shows the bit-level representations that are used for PDEs and PTEs;
+remember that there's a snapshot of that diagram at the start of
+this document.</p>
+
+<!-- ----------------------------------------------------- -->
+<hr>
+<h2>Step 8: The end, for this week</h2><p>
+Once you've reached this step, you should have all the tools you
+need to fix that pesky problem from Step 6 &mdash; a single call
+to <tt>mapPage()</tt> should be enough!  When you see a message
+indicating that <tt>"The kernel will now halt!"</tt>, you can confirm
+that it is accurate (e.g., using QEMU's <tt>info cpus</tt>), and
+then declare victory!</p>
+
+<p>[Or you could start working to further configure the new
+page directory so that you can run a user level program within its
+own protected address space.  (And why stop at just one running
+user program?)  I'm not going to try to stop you, but I should
+probably tell you that this is exactly what we'll be doing in
+next week's lab, so you can expect some more detailed instructions
+for that soon ... ]</p>
+
+<br/>
+<!-- Main material ends here-->
+</TD>
+</TR>
+</TABLE>
+
+<hr>
+
+</BODY>
+</HTML>

@@ -1,0 +1,11 @@
+FOLDER=`pwd`
+(cd ../.. ; \
+  tar cvzf $FOLDER/hello.tar.gz \
+     hello/{Makefile,boot.s,grub.cfg,hello.c,hello.ld} ; \
+  tar cvzf $FOLDER/baremetal.tar.gz \
+     Makefile Makefile.cdrom Makefile.common \
+     bootinfo/{Makefile,boot.s,bootinfo.c,bootinfo.ld,grub.cfg} \
+     simpleio/{Makefile,simpleio.h,simpleio.c,serial.s,ia32-getc.c,l4io.h} \
+     mimg/{README,Makefile,mimg.h,mimgmake.c,mimguser.h,bootload.s,mimgload.c,mimgload.ld} \
+     example-mimg/{Makefile,grub.cfg} \
+     example-mimg/kernel/{Makefile,init.s,kernel.c,kernel.ld} )
