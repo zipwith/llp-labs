@@ -1,0 +1,87 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<TITLE>A simple Video RAM simulation</TITLE>
+<style type="text/css">a {text-decoration: none}</style>
+</HEAD>
+<body text="#000000" bgcolor="#ffffff" link="#964800" vlink="#804000">
+
+<TABLE CELLSPACING=0 BORDER=0 CELLPADDING=0 align="center">
+<TR>
+<TD align="left" valign="top">
+  <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
+  This page last updated: December 2018.
+</TD>
+<TD align="right" valign="top">
+  <FONT SIZE=6>Bare Metal Exercises</FONT><br/>
+  Fall 2018
+</TD>
+</TR>
+<TR>
+<TD colspan="2">
+<!-- Main material goes here -->
+<hr>
+
+<p>The main goal for this set of exercises is to provide some
+hands on experience building and running bare metal programs.
+During the first part of the lab, we will focus on the pragmatics
+of installing and configuring the virtual machine environment that
+you'll be using for this, and all of the following labs.  But please
+come back here when you are done with that and are ready to put
+your shiny new virtual machine to the test!</p>
+
+<p>Some sample programs are provided for you to study in the
+files <a href="hello.tar.gz"><tt>hello.tar.gz</tt></a> and
+<a href="baremetal.tar.gz"><tt>baremetal.tar.gz</tt></a>.
+Download these files and unpack them in your <tt>llp</tt>
+directory using commands like the following:
+<pre>
+  cd ~/Documents/llp
+  tar xvzf ~/Downloads/hello.tar.gz.
+  tar xvzf ~/Downloads/baremetal.tar.gz.
+</pre>
+Now you can begin to experiment with building, running,
+and modifying these programs.  For example, you might
+start by moving in to the newly created <tt>hello</tt>
+directory and scanning the source files.  Find the lines
+that specify what characters are to be output on the
+screen, or that set the background color/pattern, and
+then modify them as you see fit.  Then compile and run
+the resulting program (the easiest way to do this is to
+use the command `make run`).  Congratulations, you have
+just written and executed a bare metal program!</p>
+
+<p>Here are some additional ideas for further experiments
+and exercises that you can try:</p>
+<ul>
+<li><p>Add a function to the code for "hello" that can be used to
+  output an integer value (hexadecimal notation is probably
+  easiest, and most useful too).  Test to make sure it works
+  correctly.</p></li>
+
+<li><p>Integrate your assembly code for <tt>cls</tt> into "hello".</p></li>
+
+<li><p>Adapt the code from "hello" or "bootinfo" to print out a
+  summary of the details that GRUB passes on to the "kernel"
+  via the multiboot information structure.  (Start simple,
+  and add more fields as you go.)</p></li>
+
+<li><p>Experiment with different virtual machine settings to see
+  what impact this has on the information in the multiboot
+  structure.</p></li>
+</ul>
+<p>Please see the slide for the Week 2 lecture for further
+details, and listen for further instructions and suggestions
+in the lab session.
+</p>
+
+<br/>
+<!-- Main material ends here-->
+</TD>
+</TR>
+</TABLE>
+
+<hr>
+
+</BODY>
+</HTML>
