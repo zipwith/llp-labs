@@ -10,7 +10,6 @@
 <TR>
 <TD align="left" valign="top">
   <A HREF="http://web.cecs.pdx.edu/~mpj/llp/"><img src="../llp_banner.png" alt="CS 410/510 Languages and Low-Level Programming"></A><br/>
-  This page last updated: December 2018.
 </TD>
 <TD align="right" valign="top">
   <FONT SIZE=6>Configuring a Virtual Machine</FONT><br/>
@@ -32,6 +31,14 @@ are released.  These instructions also assume that you are
 using a computer with macOS; again you will need to make some
 adjustments if you are using a different type of computer,
 although the overall process should look very similar.</p>
+
+<p>[<b>Last updated: January 4, 2019.</b> Added <tt>gcc-multilib</tt>
+and <tt>g++-multilib</tt> to the list of recommended/required
+packages because it seems that some attempts to compile 32-bit
+code on a 64-bit machine (using the <tt>-m32</tt> flag) may not
+work correctly without them.  Note that although the
+text has now been updated to include these packages, the associated
+screenshot has not been modified.]</p>
 
 <p><b>Step 1</b>: Download <tt>VirtualBox-5.2.22-126460-OSX.dmg</tt>
 and <tt>SHA356SUMS.txt</tt> from 
@@ -135,11 +142,11 @@ each of the named packages:
 <pre>
    sudo apt install gcc make perl linux-headers-$(uname -r) \
       build-essential dkms clang llvm qemu xorriso libc6-x32 \
-      parted default-jdk git ant
+      parted default-jdk git ant gcc-multilib g++-multilib
 </pre>
 Make sure you don't leave out any of the packages here, or else
 you might not be able to compile and run the LLP demos (although,
-if you do miss something, you can always go back an install it
+if you do miss something, you can always go back and install it
 later).</p>
 <p>The command about can be typed on one line as shown in the screen
 shot, or you can do it in steps, repeating the <tt>sudo apt install</tt>
